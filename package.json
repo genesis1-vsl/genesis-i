@@ -1,0 +1,15 @@
+{
+  "name": "genesis-i-cabin-management",
+  "version": "1.0.0",
+  "description": "MPSV Genesis I - Cabin Management System",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.2"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
