@@ -714,7 +714,7 @@ async function serverLoad(){
     const d=await r.json();
     if(!d||!Array.isArray(d.crew))return false;
     crew=d.crew;occupancyHistory=d.occupancyHistory||[];crewListOrder=d.crewListOrder||null;
-    scenarios=d.scenarios||[];planningScenarioId=d.planningScenarioId||null;
+    planCrew=d.planCrew||[];
     dms=d.dms||null;poc=d.poc||[];
     if(poc.length===0&&POC_SEED.length)poc=POC_SEED.map(p=>({...p,id:p.id||uid()}));
     localStorage.setItem(LS,JSON.stringify({...d}));
@@ -784,13 +784,21 @@ function shiftLbl(s){return s==='Indeterminate'?'Indet.':s;}
 function avBg(co){const m={'OSM':'#1a5276','SEAGEMS':'#6e4c1e','SUBSEA7':'#5b2c6f','FUGRO':'#1a4a7a','Marfood':'#1a6b3a','TECHNIP':'#1a6060','PRIO':'#6b6b00','FAC':'#7b1500','KCC/PRIO':'#5a5500','IHCARE':'#1a5540','NORPEM':'#004060','DeepSea':'#305050'};return m[co]||'#2e4057';}
 
 
+
+/* ── Context helpers (live vs planning) ── */
+function inPlanning(){return activeView==='planning';}
+function cabinIdOf(crewId){const c=ctxCrew().find(x=>x.id===crewId);return c?c.cabinId:null;}
+function setCabinIdOf(crewId,berthId){
+  const c=ctxCrew().find(x=>x.id===crewId);if(!c)return;
+  if(inPlanning()){c.cabinId=berthId;}
+  else{if(c.cabinId&&!berthId)closeHistory(c);c.cabinId=berthId;if(berthId)recordHistory(c);}
+}
+
 function ctxCrew(){return activeView==='planning'?planCrew:crew;}
 function crewAtBerth(bid){
-  if(inPlanning()){const s=currentScenario();if(s){const cid=Object.keys(s.assignments).find(k=>s.assignments[k]===bid);if(cid)return crew.find(c=>c.id===cid);}return undefined;}
   return ctxCrew().find(c=>c.cabinId===bid);
 }
 function aboardCrew(){
-  if(inPlanning()){const s=currentScenario();if(s)return crew.filter(c=>{const cid=cabinIdOf(c.id);return cid;});}
   return ctxCrew().filter(c=>c.cabinId);
 }
 function uniqueCompanies(){return[...new Set(crew.map(c=>c.company).filter(Boolean))].sort();}
@@ -802,7 +810,7 @@ setInterval(tick,1000);tick();
 
 /* ========= NAV ========= */
 const VIEWS=[{id:'cabins',label:'🛏 Cabin Map'},{id:'planning',label:'🗓 Planning'},{id:'history',label:'🕘 History'},{id:'crewlist',label:'📋 Crew List (ANVISA)'},{id:'dms',label:'🩺 DMS (Annex III)'},{id:'poc',label:'⚓ Port of Call'}];
-function renderNav(){document.getElementById('nav-bar').innerHTML=VIEWS.map(v=>{const dot=(v.id==='planning'&&planningScenarioId)?' <span style="color:var(--gold2);font-size:10px">●</span>':'';return `<div class="nav-tab ${v.id===activeView?'active':''}" onclick="setView('${v.id}')">${v.label}${dot}</div>`;}).join('');}
+function renderNav(){document.getElementById('nav-bar').innerHTML=VIEWS.map(v=>{const dot='';return `<div class="nav-tab ${v.id===activeView?'active':''}" onclick="setView('${v.id}')">${v.label}${dot}</div>`;}).join('');}
 function setView(v){activeView=v;renderNav();renderRight();renderCrewPanel();refreshCompanyFilter();}
 
 /* ========= SUMMARY ========= */
@@ -872,9 +880,9 @@ function berthDrop(e,bid){
   if(occupant&&occupant.id===c.id){return;} // dropped on self
   if(occupant){
     // SWAP: occupant goes to where the dragged person was (which may be null)
-    occupant.cabinId=myCurrentCabin||null;
+    setCabinIdOf(occupant.id,myCurrentCabin||null);
   }
-  /* plan/live berthDrop inline */c.cabinId=bid;if(activeView!=='planning')recordHistory(c);
+  setCabinIdOf(c.id,bid);
   crewListOrder=null;save();renderAll();
   toast((c.name||'').split(' ')[0]+' → '+bid+(occupant?' (swap com '+(occupant.name||'').split(' ')[0]+')':''));
 }
@@ -2102,7 +2110,7 @@ function openBackupModal(){
   openModal('modal-backup');
 }
 function downloadBackup(){
-  const data={crew,occupancyHistory,crewListOrder,scenarios,planningScenarioId,dms,poc,savedAt:new Date().toISOString()};
+  const data={crew,occupancyHistory,crewListOrder,planCrew,dms,poc,savedAt:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
