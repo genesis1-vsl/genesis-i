@@ -681,8 +681,7 @@ function defaultCrewListOrder(){
 let crew=[];
 let occupancyHistory=[];
 let crewListOrder=null; // array of ids (manual override) or null
-let scenarios=[];
-let planningScenarioId=null;
+let planCrew=[]; // completely independent from live crew[]
 let activeView="cabins";
 let activeDeck="all";
 let dragCrewId=null;
@@ -695,7 +694,7 @@ const LS="genesis_cms_v8";
 
 let _saveTimer=null;
 function save(){
-  try{localStorage.setItem(LS,JSON.stringify({crew,occupancyHistory,crewListOrder,scenarios,planningScenarioId,dms,poc,savedAt:new Date().toISOString()}));
+  try{localStorage.setItem(LS,JSON.stringify({crew,occupancyHistory,crewListOrder,planCrew,dms,poc,savedAt:new Date().toISOString()}));
   const d=document.getElementById('save-dot');d.classList.add('show');setTimeout(()=>d.classList.remove('show'),1400);}catch(e){}
   // Auto-push to server 2s after last change
   clearTimeout(_saveTimer);
@@ -703,7 +702,7 @@ function save(){
 }
 async function serverSave(){
   try{
-    const r=await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({crew,occupancyHistory,crewListOrder,scenarios,planningScenarioId,dms,poc,savedAt:new Date().toISOString()})});
+    const r=await fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({crew,occupancyHistory,crewListOrder,planCrew,dms,poc,savedAt:new Date().toISOString()})});
     const dot=document.getElementById('server-dot');
     if(r.ok&&dot){dot.textContent='● saved';dot.style.opacity='1';setTimeout(()=>dot.style.opacity='0',2000);}
   }catch(e){} // offline fallback - localStorage already saved
@@ -728,7 +727,7 @@ function loadOwn(){
     if(!r)r=localStorage.getItem('genesis_cms_v7');
     if(!r)r=localStorage.getItem('genesis_cms_v6');
     if(!r)r=localStorage.getItem('genesis_cms_v5');
-    if(r){const d=JSON.parse(r);if(Array.isArray(d.crew)){crew=d.crew;occupancyHistory=d.occupancyHistory||[];crewListOrder=d.crewListOrder||null;scenarios=d.scenarios||[];planningScenarioId=d.planningScenarioId||null;dms=d.dms||null;poc=d.poc||[];return true;}}
+    if(r){const d=JSON.parse(r);if(Array.isArray(d.crew)){crew=d.crew;occupancyHistory=d.occupancyHistory||[];crewListOrder=d.crewListOrder||null;planCrew=d.planCrew||[];dms=d.dms||null;poc=d.poc||[];return true;}}
   }catch(e){}
   return false;
 }
@@ -783,24 +782,16 @@ function closeModal(id){document.getElementById(id).classList.remove('open');}
 function shiftCls(s){const m={'0600-1800':'s0600','1800-0600':'s1800','0700-1900':'s0700','1900-0700':'s1900','1200-0000':'s1200','0000-1200':'s0000','Indeterminate':'sindet'};return m[s]||'sindet';}
 function shiftLbl(s){return s==='Indeterminate'?'Indet.':s;}
 function avBg(co){const m={'OSM':'#1a5276','SEAGEMS':'#6e4c1e','SUBSEA7':'#5b2c6f','FUGRO':'#1a4a7a','Marfood':'#1a6b3a','TECHNIP':'#1a6060','PRIO':'#6b6b00','FAC':'#7b1500','KCC/PRIO':'#5a5500','IHCARE':'#1a5540','NORPEM':'#004060','DeepSea':'#305050'};return m[co]||'#2e4057';}
-function inPlanning(){return activeView==='planning'&&planningScenarioId&&scenarios.find(s=>s.id===planningScenarioId);}
-function currentScenario(){return scenarios.find(s=>s.id===planningScenarioId);}
-function cabinIdOf(crewId){
-  if(inPlanning()){const s=currentScenario();if(s)return s.assignments[crewId]||null;}
-  const c=crew.find(x=>x.id===crewId);return c?c.cabinId:null;
-}
-function setCabinIdOf(crewId,berthId){
-  if(inPlanning()){const s=currentScenario();if(s)s.assignments[crewId]=berthId;return;}
-  const c=crew.find(x=>x.id===crewId);if(!c)return;
-  if(berthId!==c.cabinId){if(c.cabinId)closeHistory(c);c.cabinId=berthId;if(berthId)recordHistory(c);}
-}
+
+
+function ctxCrew(){return activeView==='planning'?planCrew:crew;}
 function crewAtBerth(bid){
   if(inPlanning()){const s=currentScenario();if(s){const cid=Object.keys(s.assignments).find(k=>s.assignments[k]===bid);if(cid)return crew.find(c=>c.id===cid);}return undefined;}
-  return crew.find(c=>c.cabinId===bid);
+  return ctxCrew().find(c=>c.cabinId===bid);
 }
 function aboardCrew(){
   if(inPlanning()){const s=currentScenario();if(s)return crew.filter(c=>{const cid=cabinIdOf(c.id);return cid;});}
-  return crew.filter(c=>c.cabinId);
+  return ctxCrew().filter(c=>c.cabinId);
 }
 function uniqueCompanies(){return[...new Set(crew.map(c=>c.company).filter(Boolean))].sort();}
 function totalBerths(){return CABINS.reduce((s,c)=>s+c.b.length,0);}
@@ -830,6 +821,7 @@ function renderSummary(){
 /* ========= LEFT CREW PANEL ========= */
 function refreshCompanyFilter(){const sel=document.getElementById('filter-company');const cur=sel.value;sel.innerHTML='<option value="">All Companies</option>'+uniqueCompanies().map(c=>`<option ${c===cur?'selected':''}>${c}</option>`).join('');}
 function renderCrewPanel(){
+  if(activeView==='planning'){renderPlanCrewPanel();return;}
   const q=(document.getElementById('crew-search').value||'').toLowerCase();
   const fc=document.getElementById('filter-company').value;
   const fs=document.getElementById('filter-status').value;
@@ -853,7 +845,7 @@ function renderCrewPanel(){
 
 /* ========= CREW CRUD ========= */
 function openAddCrew(){document.getElementById('mcrew-title').textContent='ADICIONAR TRIPULANTE';document.getElementById('edit-id').value='';['f-name','f-role','f-company','f-nat','f-joinplace','f-leaveplace','f-notes','f-join','f-leave'].forEach(i=>document.getElementById(i).value='');document.getElementById('f-shift').value='0600-1800';populateCabinSel(null);openModal('modal-crew');}
-function editCrew(id){const c=crew.find(x=>x.id===id);if(!c)return;document.getElementById('mcrew-title').textContent='EDITAR — '+c.name;document.getElementById('edit-id').value=id;document.getElementById('f-name').value=c.name||'';document.getElementById('f-role').value=c.role||'';document.getElementById('f-company').value=c.company||'';document.getElementById('f-nat').value=c.nationality||'';document.getElementById('f-shift').value=c.shift||'0600-1800';document.getElementById('f-join').value=c.joinDate||'';document.getElementById('f-joinplace').value=c.joinPlace||'';document.getElementById('f-leave').value=c.leaveDate||'';document.getElementById('f-leaveplace').value=c.leavePlace||'';document.getElementById('f-notes').value=c.notes||'';populateCabinSel(c.cabinId);openModal('modal-crew');}
+function editCrew(id){const c=(activeView==='planning'?planCrew:crew).find(x=>x.id===id);if(!c)return;document.getElementById('mcrew-title').textContent='EDITAR — '+c.name;document.getElementById('edit-id').value=id;document.getElementById('f-name').value=c.name||'';document.getElementById('f-role').value=c.role||'';document.getElementById('f-company').value=c.company||'';document.getElementById('f-nat').value=c.nationality||'';document.getElementById('f-shift').value=c.shift||'0600-1800';document.getElementById('f-join').value=c.joinDate||'';document.getElementById('f-joinplace').value=c.joinPlace||'';document.getElementById('f-leave').value=c.leaveDate||'';document.getElementById('f-leaveplace').value=c.leavePlace||'';document.getElementById('f-notes').value=c.notes||'';populateCabinSel(c.cabinId);openModal('modal-crew');}
 function populateCabinSel(current){const occ=new Set(aboardCrew().filter(c=>c.cabinId!==current).map(c=>c.cabinId));const sel=document.getElementById('f-cabin');sel.innerHTML='<option value="">- Unassigned -</option>';CABINS.forEach(cab=>berths(cab).forEach(b=>{if(!occ.has(b)||b===current)sel.innerHTML+=`<option value="${b}" ${b===current?'selected':''}>${b} (${cab.t})</option>`;}));}
 function saveCrew(){
   const name=document.getElementById('f-name').value.trim();if(!name){alert('Nome é obrigatório.');return;}
@@ -863,8 +855,8 @@ function saveCrew(){
   else{const c={id:uid(),...data};crew.push(c);if(cabinId)recordHistory(c);}
   closeModal('modal-crew');crewListOrder=null;save();renderAll();toast('Saved.');
 }
-function deleteCrew(id){const c=crew.find(x=>x.id===id);if(!c||!confirm('Remove '+c.name+'?'))return;crew=crew.filter(x=>x.id!==id);crewListOrder=null;save();renderAll();}
-function unassign(id){const c=crew.find(x=>x.id===id);if(!c)return;setCabinIdOf(id,null);crewListOrder=null;save();renderAll();toast((c.name||'').split(' ')[0]+' removed from cabin.');}
+function deleteCrew(id){const c=crew.find(x=>x.id===id);if(!c||!confirm('Remove '+c.name+'?'))return;if(activeView==='planning'){planCrew=planCrew.filter(x=>x.id!==id);}else{crew=crew.filter(x=>x.id!==id);}crewListOrder=null;save();renderAll();}
+function unassign(id){const c=ctxCrew().find(x=>x.id===id);if(!c)return;setCabinIdOf(id,null);crewListOrder=null;save();renderAll();toast((c.name||'').split(' ')[0]+' removed from cabin.');}
 
 /* ========= DRAG & DROP (cabin map) ========= */
 function dragStart(e,id,sourceBerth){dragCrewId=id;dragSourceBerth=sourceBerth||null;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',id);}catch(_){}}
@@ -880,9 +872,9 @@ function berthDrop(e,bid){
   if(occupant&&occupant.id===c.id){return;} // dropped on self
   if(occupant){
     // SWAP: occupant goes to where the dragged person was (which may be null)
-    setCabinIdOf(occupant.id,myCurrentCabin||null);
+    occupant.cabinId=myCurrentCabin||null;
   }
-  setCabinIdOf(c.id,bid);
+  /* plan/live berthDrop inline */c.cabinId=bid;if(activeView!=='planning')recordHistory(c);
   crewListOrder=null;save();renderAll();
   toast((c.name||'').split(' ')[0]+' → '+bid+(occupant?' (swap com '+(occupant.name||'').split(' ')[0]+')':''));
 }
@@ -954,82 +946,88 @@ function renderCabinGrid(){
   }).join('');
 }
 
-/* ---- Planning (scenarios) ---- */
+/* ---- Planning (independent crew rotation planner) ---- */
+
+function renderPlanCrewPanel(){
+  // Left panel showing planCrew (independent from live crew)
+  const q=(document.getElementById('crew-search').value||'').toLowerCase();
+  const fc=document.getElementById('filter-company').value;
+  const fs=document.getElementById('filter-status').value;
+  const list=planCrew.filter(c=>{
+    if(fc&&c.company!==fc)return false;
+    if(fs==='assigned'&&!c.cabinId)return false;
+    if(fs==='unassigned'&&c.cabinId)return false;
+    if(q&&!((c.name||'').toLowerCase().includes(q)||(c.company||'').toLowerCase().includes(q)||(c.role||'').toLowerCase().includes(q)))return false;
+    return true;
+  }).sort((a,b)=>{const ca=companyIdx(a.company),cb=companyIdx(b.company);if(ca!==cb)return ca-cb;return(a.name||'').localeCompare(b.name||'');});
+  document.getElementById('crew-list').innerHTML=list.length?list.map(c=>`
+    <div class="crew-item ${c.cabinId?'assigned':''}" draggable="true" ondragstart="dragStart(event,'${c.id}')" ondragend="dragEnd()">
+      <div class="crew-av" style="background:${avBg(c.company)}">${initials(c.name)}</div>
+      <div class="crew-info"><div class="crew-name">${esc(c.name)}</div><div class="crew-sub">${esc(c.role||'—')} · ${esc(c.company||'—')}</div></div>
+      ${c.cabinId?`<span class="crew-cabin-tag">${c.cabinId}</span><button class="crew-btn" title="Remove from cabin" onclick="unassign('${c.id}')">⤺</button>`:''}
+      <button class="crew-btn" title="Edit" onclick="editCrew('${c.id}')">✎</button>
+      <button class="crew-btn del" title="Remove from plan" onclick="deleteCrew('${c.id}')">✕</button>
+    </div>`).join(''):`<div class="empty-note">No crew in plan yet.<br>Use ＋ Add or <b>Import Excel</b> to build the next rotation.<br><small style="color:var(--text3)">This list is completely independent from Live.</small></div>`;
+  // Update footer counts
+  const aboard=planCrew.filter(c=>c.cabinId).length;
+  document.getElementById('ft-assigned').textContent=aboard;
+  document.getElementById('ft-total').textContent=planCrew.length;
+  document.getElementById('ft-pct').textContent=planCrew.length?Math.round(aboard/planCrew.length*100)+'%':'0%';
+  const fill=Math.min(100,totalBerths()>0?Math.round(aboard/totalBerths()*100):0);
+  document.getElementById('progress-fill').style.width=fill+'%';
+  const ub=document.getElementById('unassigned-ct');
+  if(ub)ub.textContent=planCrew.filter(c=>!c.cabinId).length||'';
+}
+
 function renderPlanningView(){
   const rp=document.getElementById('right-panel');
-  const s=currentScenario();
   const decks=[...new Set(CABINS.map(c=>c.d))];
-  const sel=`<select class="fsel" id="scenario-sel" onchange="switchScenario(this.value)" style="min-width:220px;padding:6px 10px;font-size:12px">
-    <option value="">— No scenario open —</option>
-    ${scenarios.map(sc=>`<option value="${sc.id}" ${sc.id===planningScenarioId?'selected':''}>${esc(sc.name)}</option>`).join('')}
-  </select>`;
-  const toolbar=`<div class="right-head"><h2>🗓 Planning</h2>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-      ${sel}
-      <button class="btn btn-light btn-sm" onclick="newScenario()">＋ Novo</button>
-      ${s?`<button class="btn btn-light btn-sm" onclick="renameScenario()">✎ Renomear</button>
-            <button class="btn btn-light btn-sm" onclick="duplicateScenario()">⎘ Duplicar</button>
-            <button class="btn btn-red btn-sm" onclick="deleteScenario()">🗑 Excluir</button>
-            <button class="btn btn-green btn-sm" onclick="applyScenarioToLive()">✓ Apply to Live</button>`:''}
-    </div></div>`;
-
-  if(!s){
-    rp.innerHTML=toolbar+`<div class="empty-note" style="margin-top:30px"><strong>Scenario-based planning</strong>
-      Create a scenario to plan the next rotation <b>without affecting the current live assignment</b>. Drag freely, save different versions, and apply to Live when ready.<br><br>
-      <button class="btn btn-navy" onclick="newScenario()">＋ Criar cenário</button>
-      ${scenarios.length?`<p style="margin-top:14px;color:var(--text3);font-size:12px">Ou escolha um cenário existente na lista acima (${scenarios.length}).</p>`:''}
-    </div>`;
-    return;
-  }
-
-  const liveAboard=crew.filter(c=>c.cabinId).length;
-  const planAboard=aboardCrew().length;
-  const diff=planAboard-liveAboard;
-  rp.innerHTML=toolbar+`
-    <div class="section-card" style="background:linear-gradient(90deg, var(--gold3), transparent);border-left:4px solid var(--gold2);padding:10px 14px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <div>
-          <strong style="color:var(--gold);font-size:13px;letter-spacing:1px;text-transform:uppercase">EDITANDO CENÁRIO — ${esc(s.name)}</strong>
-          <div style="font-size:11px;color:var(--text3);margin-top:3px">Created ${s.createdAt} · Changes here <b>do not affect Live</b>. Scenario POB: <b>${planAboard}</b> (Live: ${liveAboard}${diff?', Δ '+(diff>0?'+':'')+diff:''}).</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn btn-light btn-sm" onclick="resetScenarioToLive()">↻ Espelhar Live</button>
-          <button class="btn btn-light btn-sm" onclick="clearScenarioAssignments()">⊘ Clear all</button>
-        </div>
+  const aboard=planCrew.filter(c=>c.cabinId).length;
+  rp.innerHTML=`
+    <div style="background:linear-gradient(90deg,rgba(200,150,12,.12),transparent);border-left:4px solid var(--gold2);padding:10px 14px;margin-bottom:10px;border-radius:0 6px 6px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div>
+        <strong style="color:var(--gold2);font-size:13px;letter-spacing:2px;text-transform:uppercase">🗓 Planning — Next Rotation</strong>
+        <div style="font-size:11px;color:var(--text3);margin-top:3px">Independent from Live. Build your next crew rotation here, then activate it when ready.</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-light btn-sm" onclick="planCopyFromLive()">📋 Copy from Live</button>
+        <button class="btn btn-light btn-sm" onclick="planClear()">🗑 Clear all</button>
+        <button class="btn btn-green btn-sm" onclick="planActivate()">✓ Activate → Go Live</button>
       </div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-      <div style="font-size:11px;color:var(--text3)">Drag crew from the left panel to cabins, between cabins, or back to the list (⤺) to unassign.</div>
+      <div style="font-size:11px;color:var(--text3)">Plan: <b>${planCrew.length}</b> crew · <b>${aboard}</b> assigned · <b>${totalBerths()-aboard}</b> free berths. Drag from left panel → cabins, or between cabins.</div>
       <div class="deck-tabs" id="deck-tabs"></div>
     </div>
     <div class="cabin-grid" id="cabin-grid"></div>`;
-  document.getElementById('deck-tabs').innerHTML=`<div class="deck-tab ${activeDeck==='all'?'active':''}" onclick="setDeck('all')">Todos</div>`+decks.map(d=>`<div class="deck-tab ${activeDeck===d?'active':''}" onclick="setDeck('${d}')">Deck ${d}</div>`).join('');
+  document.getElementById('deck-tabs').innerHTML=`<div class="deck-tab ${activeDeck==='all'?'active':''}" onclick="setDeck('all')">All</div>`+decks.map(d=>`<div class="deck-tab ${activeDeck===d?'active':''}" onclick="setDeck('${d}')">Deck ${d}</div>`).join('');
   renderCabinGrid();
 }
 
-function newScenario(){
-  const name=prompt('Nome do cenário:', 'Rotação '+today());
-  if(!name||!name.trim())return;
-  const assignments={};
-  crew.forEach(c=>{if(c.cabinId)assignments[c.id]=c.cabinId;});
-  const s={id:uid(),name:name.trim(),createdAt:today(),assignments};
-  scenarios.push(s);planningScenarioId=s.id;save();renderRight();toast('Cenário "'+s.name+'" criado.');
+function planCopyFromLive(){
+  if(planCrew.length&&!confirm('This will replace the current plan with a copy of the Live crew. Continue?'))return;
+  planCrew=crew.map(c=>({...c,id:uid()}));
+  save();renderAll();
+  toast('Plan loaded from Live ('+planCrew.length+' crew).');
 }
-function switchScenario(id){planningScenarioId=id||null;save();renderAll();}
-function renameScenario(){const s=currentScenario();if(!s)return;const n=prompt('Novo nome:',s.name);if(!n||!n.trim())return;s.name=n.trim();save();renderAll();}
-function duplicateScenario(){const s=currentScenario();if(!s)return;const cp={id:uid(),name:s.name+' (cópia)',createdAt:today(),assignments:JSON.parse(JSON.stringify(s.assignments))};scenarios.push(cp);planningScenarioId=cp.id;save();renderRight();toast('Cenário duplicado.');}
-function deleteScenario(){const s=currentScenario();if(!s)return;if(!confirm('Excluir o cenário "'+s.name+'"?'))return;scenarios=scenarios.filter(x=>x.id!==s.id);planningScenarioId=null;save();renderAll();toast('Cenário excluído.');}
-function resetScenarioToLive(){const s=currentScenario();if(!s)return;if(!confirm('Espelhar o estado atual (Live) neste cenário? As mudanças no cenário serão perdidas.'))return;s.assignments={};crew.forEach(c=>{if(c.cabinId)s.assignments[c.id]=c.cabinId;});save();renderRight();toast('Cenário espelha o Live.');}
-function clearScenarioAssignments(){const s=currentScenario();if(!s)return;if(!confirm('Clear ALL cabin assignments in this scenario?'))return;s.assignments={};crew.forEach(c=>{s.assignments[c.id]=null;});save();renderRight();toast('Cenário esvaziado.');}
-function applyScenarioToLive(){
-  const s=currentScenario();if(!s)return;
-  if(!confirm('Aplicar o cenário "'+s.name+'" como alocação atual (Live)?\\n\\nIsso vai mover as pessoas conforme o cenário e log the changes to history.'))return;
-  // temporarily exit planning context so setCabinIdOf writes to live
-  const restore=planningScenarioId;planningScenarioId=null;
-  crew.forEach(c=>{if(c.id in s.assignments){const nb=s.assignments[c.id];if(c.cabinId!==nb){if(c.cabinId)closeHistory(c);c.cabinId=nb;if(nb)recordHistory(c);}}});
-  planningScenarioId=restore;
-  crewListOrder=null;save();renderAll();toast('Cenário aplicado ao Live ✓');
+function planClear(){
+  if(!confirm('Clear all crew from the plan?'))return;
+  planCrew=[];save();renderAll();toast('Plan cleared.');
 }
+function planActivate(){
+  if(!planCrew.length){toast('Plan is empty — add crew first.');return;}
+  const aboard=planCrew.filter(c=>c.cabinId).length;
+  if(!confirm('Activate this plan as the new LIVE crew?\n\n'+planCrew.length+' crew members, '+aboard+' assigned to cabins.\n\nThis will REPLACE the current Live manifest.'))return;
+  // Move plan to live with history
+  crew.forEach(c=>{if(c.cabinId)closeHistory(c);});
+  crew=planCrew.map(c=>({...c,id:uid()}));
+  crew.forEach(c=>{if(c.cabinId)recordHistory(c);});
+  crewListOrder=null;
+  save();
+  setView('cabins');
+  toast('✓ Plan activated — Live updated with '+crew.length+' crew members.');
+}
+
 
 /* ---- History ---- */
 function renderHistoryView(){
