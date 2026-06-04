@@ -803,7 +803,7 @@ setInterval(tick,1000);tick();
 /* ========= NAV ========= */
 const VIEWS=[{id:'cabins',label:'🛏 Cabin Map'},{id:'planning',label:'🗓 Planning'},{id:'history',label:'🕘 History'},{id:'crewlist',label:'📋 Crew List (ANVISA)'},{id:'dms',label:'🩺 DMS (Annex III)'},{id:'poc',label:'⚓ Port of Call'}];
 function renderNav(){document.getElementById('nav-bar').innerHTML=VIEWS.map(v=>{const dot=(v.id==='planning'&&planningScenarioId)?' <span style="color:var(--gold2);font-size:10px">●</span>':'';return `<div class="nav-tab ${v.id===activeView?'active':''}" onclick="setView('${v.id}')">${v.label}${dot}</div>`;}).join('');}
-function setView(v){activeView=v;renderNav();renderRight();}
+function setView(v){activeView=v;renderNav();renderRight();renderCrewPanel();refreshCompanyFilter();}
 
 /* ========= SUMMARY ========= */
 function renderSummary(){
@@ -855,7 +855,7 @@ function saveCrew(){
   else{const c={id:uid(),...data};crew.push(c);if(cabinId)recordHistory(c);}
   closeModal('modal-crew');crewListOrder=null;save();renderAll();toast('Saved.');
 }
-function deleteCrew(id){const c=crew.find(x=>x.id===id);if(!c||!confirm('Remove '+c.name+'?'))return;if(activeView==='planning'){planCrew=planCrew.filter(x=>x.id!==id);}else{crew=crew.filter(x=>x.id!==id);}crewListOrder=null;save();renderAll();}
+function deleteCrew(id){const c=(activeView==='planning'?planCrew:crew).find(x=>x.id===id);if(!c||!confirm('Remove '+c.name+'?'))return;if(activeView==='planning'){planCrew=planCrew.filter(x=>x.id!==id);}else{crew=crew.filter(x=>x.id!==id);}crewListOrder=null;save();renderAll();}
 function unassign(id){const c=ctxCrew().find(x=>x.id===id);if(!c)return;setCabinIdOf(id,null);crewListOrder=null;save();renderAll();toast((c.name||'').split(' ')[0]+' removed from cabin.');}
 
 /* ========= DRAG & DROP (cabin map) ========= */
