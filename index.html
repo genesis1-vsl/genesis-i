@@ -670,12 +670,12 @@ setInterval(tick,1000);tick();
 /* ========= NAV ========= */
 const VIEWS=[{id:'cabins',label:'🛏 Cabin Map'},{id:'planning',label:'🗓 Planning'},{id:'history',label:'🕘 History'},{id:'crewlist',label:'📋 Crew List (ANVISA)'},{id:'dms',label:'🩺 DMS (Annex III)'},{id:'poc',label:'⚓ Port of Call'}];
 function renderNav(){document.getElementById('nav-bar').innerHTML=VIEWS.map(v=>`<div class="nav-tab ${v.id===activeView?'active':''}" onclick="setView('${v.id}')">${v.label}</div>`).join('');}
-function setView(v){activeView=v;renderNav();renderRight();renderCrewPanel();refreshCompanyFilter();}
+function setView(v){activeView=v;renderNav();renderRight();renderCrewPanel();refreshCompanyFilter();renderSummary();}
 
 /* ========= SUMMARY ========= */
 function renderSummary(){
-  const tot=totalBerths(),occ=aboardCrew().length,free=tot-occ,pct=tot?Math.round(occ/tot*100):0;
-  const companies=uniqueCompanies().length;
+  const tot=totalBerths(),occ=crew.filter(c=>c.cabinId).length,free=tot-occ,pct=tot?Math.round(occ/tot*100):0;
+  const companies=[...new Set(crew.map(c=>c.company).filter(Boolean))].length;
   document.getElementById('summary-bar').innerHTML=`
     <div class="sbar-item"><div class="sbar-num">${crew.length}</div><div class="sbar-lbl">Crew</div></div>
     <div class="sbar-item"><div class="sbar-num">${occ}</div><div class="sbar-lbl">On Board (POB)</div></div>
@@ -1367,22 +1367,48 @@ function handleDrop(e){e.preventDefault();document.getElementById('import-zone')
 function handleFileUpload(e){const f=e.target.files[0];if(f)readFile(f);e.target.value='';}
 function readFile(file){const ext=(file.name.split('.').pop()||'').toLowerCase();const r=new FileReader();
   if(ext==='csv'){r.onload=ev=>parseRows(csvToRows(ev.target.result));r.readAsText(file);}
-  else{r.onload=ev=>{const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];parseRows(XLSX.utils.sheet_to_json(ws,{header:1,raw:false}));};r.readAsArrayBuffer(file);}
+  else{r.onload=ev=>{
+    const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+    const PREF=['Import Template','Crew List (ANVISA)','All Crew'];
+    let wsName=wb.SheetNames[0];
+    for(const n of PREF){const f=wb.SheetNames.find(s=>s.toLowerCase()===n.toLowerCase());if(f){wsName=f;break;}}
+    if(wsName==='_Lists'||wsName==='Cabin Reference'){
+      for(const n of wb.SheetNames){
+        const rows=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false});
+        const flat=rows.slice(0,8).map(rr=>(rr||[]).join(' ').toLowerCase());
+        if(flat.some(rr=>rr.includes('name')&&!rr.includes('vessel name'))){wsName=n;break;}
+      }
+    }
+    parseRows(XLSX.utils.sheet_to_json(wb.Sheets[wsName],{header:1,raw:false}));
+  };r.readAsArrayBuffer(file);}
 }
 function csvToRows(text){return text.split(/\r?\n/).filter(Boolean).map(l=>l.split(',').map(s=>s.replace(/^"|"$/g,'').trim()));}
 function parseRows(rows){
-  if(!rows||rows.length<2){toast('Arquivo vazio.');return;}
-  const hdr=rows[0].map(h=>(h||'').toString().toLowerCase());
+  if(!rows||rows.length<2){toast('Empty file.');return;}
+  // Auto-detect header row (handles templates with title/instruction rows before headers)
+  const NAME_KEYS=['name','nome','family name'];
+  let hi=0;
+  for(let i=0;i<Math.min(rows.length,10);i++){
+    const r=(rows[i]||[]).map(h=>(h||'').toString().toLowerCase());
+    if(NAME_KEYS.some(k=>r.some(h=>h.includes(k)))){hi=i;break;}
+  }
+  const hdr=rows[hi].map(h=>(h||'').toString().toLowerCase().replace(/\s*\*\s*$/,'').trim());
   const ci=(...keys)=>{for(const k of keys){const i=hdr.findIndex(h=>h.includes(k));if(i>=0)return i;}return -1;};
-  const iName=ci('nome','name'),iRole=ci('função','funcao','role','rank','grau'),iCo=ci('empresa','company'),iShift=ci('turno','shift'),iCab=ci('camarote','cabin','beliche','berth'),iNat=ci('nacional','nationality'),iJoin=ci('embarque','join'),iLeave=ci('desembarque','leave');
-  let added=0;const occ=new Set(aboardCrew().map(c=>c.cabinId));
-  rows.slice(1).forEach(row=>{
-    const name=(row[iName]||'').toString().trim();if(!name)return;
-    let cab=iCab>=0?(row[iCab]||'').toString().trim():'';if(cab&&(occ.has(cab)||!cabinByBerth(cab)))cab='';if(cab)occ.add(cab);
-    ctxCrew().push({id:uid(),name,role:iRole>=0?(row[iRole]||'').toString().trim():'',company:iCo>=0?(row[iCo]||'').toString().trim():'',shift:iShift>=0?(row[iShift]||'').toString().trim()||'Indeterminate':'Indeterminate',cabinId:cab||null,nationality:iNat>=0?(row[iNat]||'').toString().trim():'',joinDate:iJoin>=0?(row[iJoin]||'').toString().trim():'',joinPlace:'',leaveDate:iLeave>=0?(row[iLeave]||'').toString().trim():'',leavePlace:'',notes:''});
+  const iName=ci('nome','name','family name'),iRole=ci('função','funcao','role','rank','grau'),iCo=ci('empresa','company'),iShift=ci('turno','shift'),iCab=ci('camarote','cabin','beliche','berth'),iNat=ci('nacional','nationality'),iJoin=ci('embarque','embark','join'),iLeave=ci('desembarque','disemb','leave');
+  if(iName<0){toast('Column "Name" not found. Check the file format.');return;}
+  let added=0;const occ=new Set(ctxCrew().filter(c=>c.cabinId).map(c=>c.cabinId));
+  rows.slice(hi+1).forEach(row=>{
+    const name=(row[iName]||'').toString().trim();
+    if(!name||name.toLowerCase().includes('last name')||name.startsWith('▼'))return;
+    let cab=iCab>=0?(row[iCab]||'').toString().trim():'';
+    if(cab&&(cab.startsWith('▼')||occ.has(cab)||!cabinByBerth(cab)))cab='';
+    if(cab)occ.add(cab);
+    let shift=iShift>=0?(row[iShift]||'').toString().trim():'';if(!shift||shift.startsWith('▼'))shift='Indeterminate';
+    ctxCrew().push({id:uid(),name,role:iRole>=0?(row[iRole]||'').toString().trim():'',company:iCo>=0?(row[iCo]||'').toString().trim():'',shift,cabinId:cab||null,nationality:iNat>=0?(row[iNat]||'').toString().trim():'',joinDate:iJoin>=0?(row[iJoin]||'').toString().trim():'',joinPlace:'',leaveDate:iLeave>=0?(row[iLeave]||'').toString().trim():'',leavePlace:'',notes:''});
     added++;
   });
-  crewListOrder=null;save();renderAll();toast(added+' tripulante(s) importado(s).');
+  crewListOrder=null;save();renderAll();
+  toast(added+(inPlanning()?' added to plan.':' crew imported.'));
 }
 
 /* ========= MIGRATION / SEED ========= */
