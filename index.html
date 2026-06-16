@@ -205,8 +205,17 @@ body.logbook-mode .right-panel{padding:0;height:auto;min-height:calc(100vh - 102
 /* TABLES (crew list / history) */
 .tbl{width:100%;border-collapse:collapse;background:var(--bg2);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);font-size:12px;}
 .tbl th{background:var(--navy);color:#f0d880;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:9px 10px;text-align:left;}
-.poc-table thead th{position:sticky;top:0;z-index:5;box-shadow:0 2px 0 rgba(0,0,0,.25);}
-body.poc-mode .right-panel{overflow:hidden;}
+.poc-table{overflow:visible !important;box-shadow:none;}
+.poc-table thead th{position:sticky;top:142px;z-index:85;box-shadow:0 2px 0 rgba(0,0,0,.25);}
+/* In POC mode the page (window) scrolls instead of the right-panel, so the
+   table header can stick right under the summary bar (which ends at 142px). */
+body.poc-mode .main{min-height:0;height:auto;}
+body.poc-mode .right-panel{height:auto;overflow-x:visible;overflow-y:visible;}
+.poc-tablewrap{overflow:visible;}
+@media(max-width:820px){
+  .poc-table thead th{top:0;}
+  body.poc-mode .right-panel{height:auto;overflow-x:auto;overflow-y:visible;}
+}
 .tbl td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text2);}
 .tbl tr:last-child td{border-bottom:none;}
 .tbl tr.co-head td{background:var(--bg4);font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:1px;color:var(--navy);text-transform:uppercase;}
@@ -2092,7 +2101,7 @@ function renderPOCView(){
   const done=poc.filter(p=>p.arrivalDate&&p.departureDate).length;
   const inPort=poc.filter(p=>p.arrivalDate&&!p.departureDate).length;
   const planned=poc.filter(p=>!p.arrivalDate&&p.plannedDate).length;
-  rp.innerHTML=`<div style="display:flex;flex-direction:column;height:100%"><div class="right-head">
+  rp.innerHTML=`<div class="right-head">
     <h2>⚓ Port of Call</h2>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn btn-gold btn-sm" onclick="pocNew()">＋ Add</button>
@@ -2111,7 +2120,7 @@ function renderPOCView(){
         <div class="sbar-num" style="color:var(--gold)">${planned}</div><div class="sbar-lbl">Planned</div></div>
     </div>
     ${poc.length===0?`<div class="empty-note"><strong>No port calls logged yet.</strong><br>Click "＋ Add" to start.</div>`:
-    `<div style="flex:1;min-height:0;overflow:auto;border:1px solid var(--border);border-radius:8px">
+    `<div class="poc-tablewrap">
       <table class="tbl poc-table" style="min-width:1050px;font-size:11px">
         <thead><tr>
           <th style="width:22px">#</th>
@@ -2142,7 +2151,7 @@ function renderPOCView(){
           </tr>`).join('')}
         </tbody>
       </table>
-    </div>`}</div>`;
+    </div>`}`;
 }
 
 /* ---- Port of Call — crew-change punctuality KPI ---- */
