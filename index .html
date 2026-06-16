@@ -80,25 +80,27 @@ body.start-mode .right-panel{padding:0;background:#f4f6f9;height:auto;min-height
 .start-clock{color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:23px;letter-spacing:1px;text-align:right;}
 .start-sync{display:inline-flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;color:#7fe0c0;font-weight:600;background:rgba(127,224,192,.1);border:1px solid rgba(127,224,192,.25);padding:3px 9px;border-radius:20px;}
 .start-sync .dot{width:6px;height:6px;border-radius:50%;background:#7fe0c0;box-shadow:0 0 6px #7fe0c0;}
-.start-kpis{position:relative;z-index:1;display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-top:22px;}
-.start-kpi{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);border-radius:12px;padding:12px 13px;position:relative;overflow:hidden;}
-.start-kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold2);opacity:.85;}
+.start-kpis{position:relative;z-index:1;display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-top:22px;max-width:1500px;}
+.start-kpi{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);border-radius:12px;padding:13px 15px;position:relative;overflow:hidden;}
+.start-kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--gold2));opacity:.95;}
 .start-kpi .l{font-size:9.5px;color:#9fb0d0;text-transform:uppercase;letter-spacing:.8px;}
 .start-kpi .v{font-family:'Barlow Condensed',sans-serif;font-size:25px;font-weight:700;color:#e7b53a;line-height:1;margin-top:6px;}
 .start-wave{position:absolute;left:0;right:0;bottom:-1px;width:100%;height:40px;display:block;z-index:1;}
 .start-body{padding:8px 30px 30px;background:linear-gradient(180deg,#f4f6f9,#eef1f6);}
 .start-h2{display:flex;align-items:center;gap:9px;font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;letter-spacing:2.5px;color:#56627a;font-size:13px;font-weight:600;margin:6px 2px 14px;}
 .start-h2:before{content:"";width:18px;height:3px;border-radius:2px;background:var(--gold2);}
-.start-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;max-width:1180px;}
-.start-card{background:#fff;border:1px solid #e6e9f0;border-radius:14px;padding:15px 14px;cursor:pointer;position:relative;overflow:hidden;transition:transform .16s,box-shadow .16s,border-color .16s;}
+.start-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;max-width:1500px;margin:0 auto;}
+.start-card{background:#fff;border:1px solid #e6e9f0;border-radius:14px;padding:17px 16px;cursor:pointer;position:relative;overflow:hidden;transition:transform .16s,box-shadow .16s,border-color .16s;}
 .start-card:hover{transform:translateY(-4px);box-shadow:0 14px 28px rgba(21,35,63,.15);border-color:var(--gold2);}
-.start-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(var(--gold2),#e7b53a);transform:scaleY(0);transform-origin:top;transition:transform .16s;}
+.start-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ico,linear-gradient(var(--gold2),#e7b53a));transform:scaleY(0);transform-origin:top;transition:transform .16s;}
 .start-card:hover:before{transform:scaleY(1);}
-.start-ico{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#243660,#34508a);display:flex;align-items:center;justify-content:center;font-size:21px;margin-bottom:11px;box-shadow:0 4px 10px rgba(21,35,63,.18);}
-.start-ct{font-family:'Barlow Condensed',sans-serif;font-weight:600;letter-spacing:.6px;color:#1f2733;font-size:17px;}
+.start-ico{width:48px;height:48px;border-radius:13px;background:var(--ico,linear-gradient(135deg,#243660,#34508a));display:flex;align-items:center;justify-content:center;font-size:23px;margin-bottom:12px;box-shadow:0 5px 14px var(--icoglow,rgba(21,35,63,.22));}
+.start-ct{font-family:'Barlow Condensed',sans-serif;font-weight:600;letter-spacing:.6px;color:#1f2733;font-size:18px;}
 .start-cd{font-size:11.5px;color:#6b7787;margin-top:3px;line-height:1.35;}
-.start-badge{position:absolute;top:13px;right:13px;background:linear-gradient(135deg,#f0f3f8,#e3e8f1);color:var(--navy);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
-@media(max-width:820px){.start-kpis,.start-grid{grid-template-columns:repeat(2,1fr);}.start-name{font-size:25px;}.start-hero{padding:18px 16px 46px;}.start-body{padding:8px 14px 20px;}}
+.start-badge{position:absolute;top:14px;right:14px;background:linear-gradient(135deg,#f0f3f8,#e3e8f1);color:var(--navy);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;}
+@media(max-width:1100px){.start-kpis{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:820px){.start-kpis{grid-template-columns:repeat(2,1fr);}.start-grid{grid-template-columns:repeat(2,1fr);}.start-name{font-size:25px;}.start-hero{padding:18px 16px 46px;}.start-body{padding:8px 14px 20px;}}
+@media(max-width:520px){.start-grid{grid-template-columns:1fr;}}
 /* ---- DP Logbook module ---- */
 body.logbook-mode .left-panel{display:none;}
 body.logbook-mode .main{grid-template-columns:1fr;}
@@ -203,6 +205,7 @@ body.logbook-mode .right-panel{padding:0;height:auto;min-height:calc(100vh - 102
 /* TABLES (crew list / history) */
 .tbl{width:100%;border-collapse:collapse;background:var(--bg2);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);font-size:12px;}
 .tbl th{background:var(--navy);color:#f0d880;font-family:'Barlow Condensed',sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:9px 10px;text-align:left;}
+.poc-table thead th{position:sticky;top:0;z-index:5;box-shadow:0 2px 0 rgba(0,0,0,.25);}
 .tbl td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text2);}
 .tbl tr:last-child td{border-bottom:none;}
 .tbl tr.co-head td{background:var(--bg4);font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:1px;color:var(--navy);text-transform:uppercase;}
@@ -940,18 +943,18 @@ function renderStartView(){
   const companies=[...new Set(crew.filter(c=>c.cabinId).map(c=>c.company).filter(Boolean))].length;
   const dstr=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
   const sync=((document.getElementById('sync-status')||{}).textContent||'').trim();
-  const kpis=[['👥',occ,'On Board'],['🛏',occ+'/'+tot,'Cabins'],['🏢',companies,'Companies On Board'],['⚓',_lastPort(),'Last Port'],['📅',_nextPort(),'Next Port']];
+  const kpis=[['👥',occ,'On Board','#3b8ad9'],['🛏',occ+'/'+tot,'Cabins','#28b88a'],['🏢',companies,'Companies On Board','#9a72e0'],['⚓',_lastPort(),'Last Port','#2f86c8'],['📅',_nextPort(),'Next Port','#efa23a']];
   const mods=[
-    ['🛏','Cabin Map','Cabin layout &amp; occupancy',"setView('cabins')",occ+'/'+tot],
-    ['🗓','Planning','Next rotation / embarkation',"setView('planning')",planCrew.length||''],
-    ['🕘','History','Occupancy history',"setView('history')",occupancyHistory.length||''],
-    ['📋','Crew List','Official ANVISA list',"setView('crewlist')",crew.length||''],
-    ['🩺','DMS','Maritime Declaration of Health',"setView('dms')",''],
-    ['⚓','Port of Call','Port calls',"setView('poc')",poc.length||''],
-    ['⏱','NPT','Non-productive time log',"setView('npt')",npt.length||''],
-    ['🧭','DP Logbook','Generate DP logbooks',"setView('logbook')",''],
-    ['📄','Gangway','Gangway list (Word)',"exportGangway()",''],
-    ['💾','Backup','Data backup',"openBackupModal()",''],
+    ['🛏','Cabin Map','Cabin layout &amp; occupancy',"setView('cabins')",occ+'/'+tot,'linear-gradient(135deg,#2563c9,#3b8ad9)','rgba(37,99,201,.32)'],
+    ['🗓','Planning','Next rotation / embarkation',"setView('planning')",planCrew.length||'','linear-gradient(135deg,#0f9d76,#28b88a)','rgba(15,157,118,.32)'],
+    ['🕘','History','Occupancy history',"setView('history')",occupancyHistory.length||'','linear-gradient(135deg,#7a52cc,#9a72e0)','rgba(122,82,204,.32)'],
+    ['📋','Crew List','Official ANVISA list',"setView('crewlist')",crew.length||'','linear-gradient(135deg,#c0392b,#e05546)','rgba(192,57,43,.30)'],
+    ['🩺','DMS','Maritime Declaration of Health',"setView('dms')",'','linear-gradient(135deg,#0a8aa0,#1fb0c8)','rgba(10,138,160,.32)'],
+    ['⚓','Port of Call','Port calls',"setView('poc')",poc.length||'','linear-gradient(135deg,#1b5fa8,#2f86c8)','rgba(27,95,168,.32)'],
+    ['⏱','NPT','Non-productive time log',"setView('npt')",npt.length||'','linear-gradient(135deg,#d9821a,#efa23a)','rgba(217,130,26,.32)'],
+    ['🧭','DP Logbook','Generate DP logbooks',"setView('logbook')",'','linear-gradient(135deg,#34508a,#4a6cae)','rgba(52,80,138,.32)'],
+    ['📄','Gangway','Gangway list (Word)',"exportGangway()",'','linear-gradient(135deg,#566379,#74849c)','rgba(86,99,121,.30)'],
+    ['💾','Backup','Data backup',"openBackupModal()",'','linear-gradient(135deg,#b06a00,#d99021)','rgba(176,106,0,.30)'],
   ];
   document.getElementById('right-panel').innerHTML=`
    <div class="start-hero">
@@ -970,14 +973,14 @@ function renderStartView(){
        </div>
      </div>
      <div class="start-kpis">
-       ${kpis.map(k=>`<div class="start-kpi"><div class="l">${k[0]} ${k[2]}</div><div class="v">${k[1]}</div></div>`).join('')}
+       ${kpis.map(k=>`<div class="start-kpi" style="--kc:${k[3]}"><div class="l">${k[0]} ${k[2]}</div><div class="v">${k[1]}</div></div>`).join('')}
      </div>
      <svg class="start-wave" viewBox="0 0 1200 40" preserveAspectRatio="none"><path d="M0,40 L0,20 C150,2 350,2 600,18 C850,34 1050,34 1200,16 L1200,40 Z" fill="#f4f6f9"/></svg>
    </div>
    <div class="start-body">
      <div class="start-h2">Modules</div>
      <div class="start-grid">
-       ${mods.map(m=>`<div class="start-card" onclick="${m[3]}">${m[4]!==''?`<div class="start-badge">${m[4]}</div>`:''}<div class="start-ico">${m[0]}</div><div class="start-ct">${m[1]}</div><div class="start-cd">${m[2]}</div></div>`).join('')}
+       ${mods.map(m=>`<div class="start-card" style="--ico:${m[5]};--icoglow:${m[6]}" onclick="${m[3]}">${m[4]!==''?`<div class="start-badge">${m[4]}</div>`:''}<div class="start-ico">${m[0]}</div><div class="start-ct">${m[1]}</div><div class="start-cd">${m[2]}</div></div>`).join('')}
      </div>
    </div>`;
 }
@@ -2106,8 +2109,8 @@ function renderPOCView(){
         <div class="sbar-num" style="color:var(--gold)">${planned}</div><div class="sbar-lbl">Planned</div></div>
     </div>
     ${poc.length===0?`<div class="empty-note"><strong>No port calls logged yet.</strong><br>Click "＋ Add" to start.</div>`:
-    `<div style="overflow-x:auto">
-      <table class="tbl" style="min-width:1050px;font-size:11px">
+    `<div style="overflow-x:auto;max-height:calc(100vh - 230px);overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      <table class="tbl poc-table" style="min-width:1050px;font-size:11px">
         <thead><tr>
           <th style="width:22px">#</th>
           <th style="width:9%">Planned Date</th>
@@ -2153,8 +2156,9 @@ function pocSchedule(){
 }
 function pocKPIData(){
   const td=today();
-  const valid=poc.filter(p=>/^\d{4}-\d{2}-\d{2}$/.test(p.arrivalDate||''));
-  const rows=pocSchedule().map(T=>{
+  const POC_KPI_EXCLUDE=['2026-01-06']; // disregarded from KPI: both the schedule slot and the port call
+  const valid=poc.filter(p=>/^\d{4}-\d{2}-\d{2}$/.test(p.arrivalDate||'')&&!POC_KPI_EXCLUDE.includes(p.plannedDate||''));
+  const rows=pocSchedule().filter(T=>!POC_KPI_EXCLUDE.includes(T)).map(T=>{
     let best=null,ba=99;
     valid.forEach(p=>{const dv=_pocDday(p.arrivalDate,T);if(Math.abs(dv)<=7&&Math.abs(dv)<ba){ba=Math.abs(dv);best={p,dv};}});
     const up=T>td;
