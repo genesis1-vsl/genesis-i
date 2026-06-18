@@ -2429,7 +2429,7 @@ function nptKPI(){
 function renderNPTView(){
   const rp=document.getElementById('right-panel');
   const K=nptKPI();
-  const tile=(v,l,c)=>`<div class="sbar-item" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:7px 16px;text-align:center"><div class="sbar-num" style="color:${c||'var(--navy)'}">${v}</div><div class="sbar-lbl">${l}</div></div>`;
+  const tile=(v,l,c)=>`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:9px 16px;text-align:center"><div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;line-height:1;color:${c||'var(--navy)'}">${v}</div><div style="font-size:8px;text-transform:uppercase;letter-spacing:1.5px;color:#8593a8;margin-top:3px">${l}</div></div>`;
 
   // Operationality hero + monthly breakdown
   const opsPct=K.opsPct.toFixed(2);
@@ -2457,7 +2457,8 @@ function renderNPTView(){
     <h2>⏱ NPT &amp; Vessel Operationality</h2>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       <button class="btn btn-gold btn-sm" onclick="nptNew()">＋ Add</button>
-      <button class="btn btn-navy btn-sm" onclick="exportNPTKPI()">📊 KPI Report (PDF)</button>
+      <button class="btn btn-light btn-sm" onclick="exportNPTExcel()">📊 Excel</button>
+      <button class="btn btn-navy btn-sm" onclick="exportNPTKPI()">📄 KPI Report (PDF)</button>
     </div></div>
 
     <!-- HERO: Operationality -->
@@ -2506,6 +2507,31 @@ function renderNPTView(){
         <td><button class="crew-btn del" onclick="nptDel('${n.id}')" title="Remove">✕</button></td>
       </tr>`).join('')}
       </tbody></table></div>`}`;
+}
+function exportNPTExcel(){
+  if(typeof XLSX==='undefined'){toast('SheetJS not loaded (needs internet on first use).');return;}
+  const K=nptKPI();
+  const evs=npt.slice().filter(n=>n.date).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.start||'').localeCompare(b.start||''));
+  const evRows=[['#','Date','Start','End Date','End','Duration (h)','Duration','Category','Reason / Notes'],
+    ...evs.map((n,i)=>{const h=nptDur(n);return [i+1,n.date?brDate(n.date):'',n.start||'',n.endDate?brDate(n.endDate):'',n.end||'',h!=null?Number(h.toFixed(2)):'',nptDurStr(h),n.category||'',n.notes||''];})];
+  const ws1=XLSX.utils.aoa_to_sheet(evRows);
+  ws1['!cols']=[{wch:5},{wch:12},{wch:8},{wch:12},{wch:8},{wch:12},{wch:11},{wch:12},{wch:50}];
+  const moRows=[['Month','NPT Events','NPT Hours','Operational Hours','Period Hours','Operationality %','NPT %'],
+    ...K.monthsList.slice().sort().map(m=>{const o=K.byMonthOps[m];const d=new Date(m+'-01T00:00:00Z');const lbl=d.toLocaleDateString('en-GB',{month:'short',year:'numeric',timeZone:'UTC'});
+      return [lbl,o.n,Number(o.nptH.toFixed(2)),Number(o.opsH.toFixed(1)),Number(o.monthH.toFixed(1)),Number(o.opsPct.toFixed(2)),Number(o.nptPct.toFixed(2))];}),
+    [],['TOTAL',K.events,Number(K.totalH.toFixed(2)),Number(K.opsH.toFixed(1)),Number(K.windowH.toFixed(1)),Number(K.opsPct.toFixed(2)),Number(K.nptPct.toFixed(2))]];
+  const ws2=XLSX.utils.aoa_to_sheet(moRows);
+  ws2['!cols']=[{wch:14},{wch:11},{wch:11},{wch:16},{wch:13},{wch:15},{wch:9}];
+  const catRows=[['Category','Events','Hours','% of NPT'],
+    ...NPT_CATS.map(c=>[c,K.byCat[c].n,Number(K.byCat[c].h.toFixed(2)),K.totalH?Number((K.byCat[c].h/K.totalH*100).toFixed(1)):0])];
+  const ws3=XLSX.utils.aoa_to_sheet(catRows);
+  ws3['!cols']=[{wch:14},{wch:8},{wch:10},{wch:10}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws1,'NPT Events');
+  XLSX.utils.book_append_sheet(wb,ws2,'Operationality by Month');
+  XLSX.utils.book_append_sheet(wb,ws3,'By Category');
+  XLSX.writeFile(wb,'npt_operationality_genesis_'+today().replace(/-/g,'')+'.xlsx');
+  toast('✓ NPT Excel exported.');
 }
 function exportNPTKPI(){
   const K=nptKPI();
@@ -2556,6 +2582,11 @@ function exportNPTKPI(){
    <table><thead><tr><th>Month</th><th style="text-align:center">NPT Events</th><th style="text-align:center">NPT Hours</th><th style="text-align:center">Operationality</th></tr></thead><tbody>${moRows}</tbody></table>
    <h2>NPT by Category</h2>
    <table><thead><tr><th>Category</th><th style="text-align:center">Events</th><th style="text-align:center">Hours</th><th style="text-align:center">% of NPT</th></tr></thead><tbody>${catRows}</tbody></table>
+   <h2>NPT Event Log — 2026</h2>
+   <table><thead><tr><th style="width:20px">#</th><th>Date</th><th>Start</th><th>End</th><th>Duration</th><th>Category</th><th>Reason / Notes</th></tr></thead><tbody>${
+     (()=>{const evs=npt.slice().filter(n=>(n.date||'').startsWith('2026')).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.start||'').localeCompare(b.start||''));
+       return evs.length?evs.map((n,i)=>{const endD=n.endDate&&n.endDate!==n.date?(_pocFmtBR(n.endDate)+' '):'';return `<tr><td>${i+1}</td><td>${_pocFmtBR(n.date)}</td><td>${n.start||'—'}</td><td>${endD}${n.end||'—'}</td><td>${nptDurStr(nptDur(n))}</td><td><b style="color:${NPT_COL[n.category]||'#6b7787'}">${n.category||'—'}</b></td><td>${esc(n.notes||'')}</td></tr>`;}).join(''):'<tr><td colspan="7" style="text-align:center;color:#888">No events in 2026</td></tr>';})()
+   }</tbody></table>
    <div class="note"><b>Operationality</b> is the share of calendar time the vessel was available (not in NPT) over the reporting window.<br><b>Longest event:</b> ${lgStr}<br>Total events: ${K.events} &nbsp;·&nbsp; Total NPT: ${nptDurStr(K.totalH)} (${K.totalH.toFixed(1)} h) &nbsp;·&nbsp; Reporting window: ${nptDurStr(K.windowH)}.</div>`;
   _pdfOpen('Operationality & NPT KPI — Genesis I', styles, body);
 }
