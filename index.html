@@ -156,6 +156,7 @@ body.logbook-mode .right-panel{padding:0;height:auto;min-height:calc(100vh - 102
 .crew-btn{font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;padding:2px 3px;transition:color .18s;border-radius:3px;}
 .crew-btn:hover{color:var(--accent);background:var(--accent3);}
 .crew-btn.del:hover{color:var(--red);background:var(--red2);}
+.crew-btn.to-plan:hover{color:#a05a00;background:#fae6c2;}
 .panel-footer{padding:9px 14px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg3);}
 .stat-mini{display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:4px;}
 .stat-mini strong{color:var(--accent);}
@@ -188,7 +189,12 @@ body.logbook-mode .right-panel{padding:0;height:auto;min-height:calc(100vh - 102
 .berth-content[draggable="true"]:active{cursor:grabbing;}
 .berth-content.dragging{opacity:.3;}
 .crew-list.unassign-drop{background:linear-gradient(180deg, rgba(176,48,48,.10), rgba(176,48,48,.04));box-shadow:inset 0 0 0 2px var(--red);border-radius:8px;}
-.crew-list.unassign-drop::before{content:'⤺ Drop here to unassign from cabin';display:block;text-align:center;padding:8px;color:var(--red);font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;}
+.crew-list.can-unassign{box-shadow:inset 0 0 0 2px #2e7d52;border-radius:8px;background:linear-gradient(180deg, rgba(46,125,82,.08), rgba(46,125,82,.02));animation:unassignhint 1.4s ease-in-out infinite;}
+.crew-list.can-unassign::before{content:'⤺ Solte aqui para tirar do camarote';display:block;text-align:center;padding:9px;color:#2e7d52;font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;position:sticky;top:0;background:rgba(232,245,238,.95);border-bottom:1px dashed #2e7d52;z-index:2;}
+.crew-list.can-unassign.unassign-drop{box-shadow:inset 0 0 0 3px var(--red);background:linear-gradient(180deg, rgba(176,48,48,.14), rgba(176,48,48,.05));animation:none;}
+.crew-list.can-unassign.unassign-drop::before{content:'⤺ Solte para REMOVER do camarote';color:#fff;background:var(--red);border-bottom:none;}
+@keyframes unassignhint{0%,100%{box-shadow:inset 0 0 0 2px #2e7d52;}50%{box-shadow:inset 0 0 0 3px #4caf7d;}}
+.crew-list.unassign-drop::before{content:'⤺ Solte aqui para tirar do camarote';display:block;text-align:center;padding:8px;color:var(--red);font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;}
 
 /* DMS form */
 .dms-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);flex-wrap:wrap;}
@@ -822,12 +828,28 @@ function renderCrewPanel(){
       <div class="crew-av" style="background:${avBg(c.company)}">${initials(c.name)}</div>
       <div class="crew-info"><div class="crew-name">${esc(c.name)}</div><div class="crew-sub">${esc(c.role||'—')} · ${esc(c.company||'—')}</div></div>
       ${cab?`<span class="crew-cabin-tag">${cab}</span><button class="crew-btn" title="Remove from cabin" onclick="unassign('${c.id}')">⤺</button>`:''}
+      ${!inPlanning()?`<button class="crew-btn to-plan" title="Copiar para o Planning" onclick="copyToPlan('${c.id}')">🗓</button>`:''}
       <button class="crew-btn" title="Edit" onclick="editCrew('${c.id}')">✎</button>
       <button class="crew-btn del" title="Remove" onclick="deleteCrew('${c.id}')">✕</button>
     </div>`;}).join(''):emptyNote;
 }
 
 /* ========= CREW CRUD ========= */
+function copyToPlan(id){
+  const c=crew.find(x=>x.id===id);if(!c)return;
+  const dup=planCrew.find(p=>(p.name||'').toLowerCase().trim()===(c.name||'').toLowerCase().trim()&&(p.company||'')===(c.company||''));
+  if(dup&&!confirm((c.name||'Esta pessoa')+' já está no Planning.\nAdicionar mesmo assim?'))return;
+  const nc={...c,id:uid()};
+  let cabMsg='';
+  if(nc.cabinId){
+    const taken=planCrew.find(p=>p.cabinId===nc.cabinId);
+    if(taken){nc.cabinId=null;cabMsg=' (cabine '+(c.cabinId)+' já ocupada no plano — entrou sem cabine)';}
+    else cabMsg=' (cabine '+nc.cabinId+')';
+  }
+  planCrew.push(nc);save();
+  if(inPlanning())renderAll();
+  toast('✓ '+(c.name||'Tripulante')+' copiado para o Planning'+cabMsg+'.');
+}
 function openAddCrew(){document.getElementById('mcrew-title').textContent='ADICIONAR TRIPULANTE';document.getElementById('edit-id').value='';['f-name','f-role','f-company','f-nat','f-joinplace','f-leaveplace','f-notes','f-join','f-leave'].forEach(i=>document.getElementById(i).value='');document.getElementById('f-shift').value='0600-1800';populateCabinSel(null);openModal('modal-crew');}
 function editCrew(id){const c=ctxCrew().find(x=>x.id===id);if(!c)return;document.getElementById('mcrew-title').textContent='EDITAR — '+c.name;document.getElementById('edit-id').value=id;document.getElementById('f-name').value=c.name||'';document.getElementById('f-role').value=c.role||'';document.getElementById('f-company').value=c.company||'';document.getElementById('f-nat').value=c.nationality||'';document.getElementById('f-shift').value=c.shift||'0600-1800';document.getElementById('f-join').value=c.joinDate||'';document.getElementById('f-joinplace').value=c.joinPlace||'';document.getElementById('f-leave').value=c.leaveDate||'';document.getElementById('f-leaveplace').value=c.leavePlace||'';document.getElementById('f-notes').value=c.notes||'';populateCabinSel(c.cabinId);openModal('modal-crew');}
 function populateCabinSel(current){const occ=new Set(aboardCrew().filter(c=>c.cabinId!==current).map(c=>c.cabinId));const sel=document.getElementById('f-cabin');sel.innerHTML='<option value="">- Unassigned -</option>';CABINS.forEach(cab=>berths(cab).forEach(b=>{if(!occ.has(b)||b===current)sel.innerHTML+=`<option value="${b}" ${b===current?'selected':''}>${b} (${cab.t})</option>`;}));}
@@ -844,8 +866,11 @@ function deleteCrew(id){const c=ctxCrew().find(x=>x.id===id);if(!c||!confirm('Re
 function unassign(id){const c=ctxCrew().find(x=>x.id===id);if(!c)return;setCabinIdOf(id,null);crewListOrder=null;save();renderAll();toast((c.name||'').split(' ')[0]+' removed from cabin.');}
 
 /* ========= DRAG & DROP (cabin map) ========= */
-function dragStart(e,id,sourceBerth){dragCrewId=id;dragSourceBerth=sourceBerth||null;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',id);}catch(_){}}
-function dragEnd(){dragCrewId=null;dragSourceBerth=null;document.querySelectorAll('.dragging').forEach(el=>el.classList.remove('dragging'));document.querySelectorAll('.drop-hover').forEach(el=>el.classList.remove('drop-hover'));document.querySelectorAll('.unassign-drop').forEach(el=>el.classList.remove('unassign-drop'));}
+function dragStart(e,id,sourceBerth){dragCrewId=id;dragSourceBerth=sourceBerth||null;e.target.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',id);}catch(_){}
+  // If the dragged person is in a cabin, light up the crew list so the user
+  // discovers they can drop here to remove them from the cabin.
+  if(cabinIdOf(id)){const cl=document.getElementById('crew-list');if(cl)cl.classList.add('can-unassign');}}
+function dragEnd(){dragCrewId=null;dragSourceBerth=null;document.querySelectorAll('.dragging').forEach(el=>el.classList.remove('dragging'));document.querySelectorAll('.drop-hover').forEach(el=>el.classList.remove('drop-hover'));document.querySelectorAll('.unassign-drop').forEach(el=>el.classList.remove('unassign-drop'));document.querySelectorAll('.can-unassign').forEach(el=>el.classList.remove('can-unassign'));}
 function berthDragOver(e,bid){if(!dragCrewId)return;e.preventDefault();document.getElementById('br_'+bid.replace(/[^a-z0-9]/gi,'_'))?.classList.add('drop-hover');}
 function berthDragLeave(bid){document.getElementById('br_'+bid.replace(/[^a-z0-9]/gi,'_'))?.classList.remove('drop-hover');}
 function berthDrop(e,bid){
