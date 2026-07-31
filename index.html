@@ -779,7 +779,7 @@ function tick(){document.getElementById('clock').textContent=new Date().toLocale
 setInterval(tick,1000);tick();
 
 /* ========= NAV ========= */
-const VIEWS=[{id:'start',label:'🏠 Start'},{id:'cabins',label:'🛏 Cabin Map'},{id:'planning',label:'🗓 Planning'},{id:'history',label:'🕘 History'},{id:'crewlist',label:'📋 Crew List (ANVISA)'},{id:'dms',label:'🩺 DMS (Annex III)'},{id:'poc',label:'⚓ Port of Call'},{id:'npt',label:'⏱ NPT'},{id:'logbook',label:'🧭 DP Logbook'}];
+const VIEWS=[{id:'start',label:'🏠 Start'},{id:'cabins',label:'🛏 Cabin Map'},{id:'planning',label:'🗓 Planning'},{id:'history',label:'🕘 History'},{id:'crewlist',label:'📋 Crew List (ANVISA)'},{id:'dms',label:'🩺 DMS (Annex III)'},{id:'poc',label:'⚓ Port of Call'},{id:'npt',label:'⏱ NPT'},{id:'logbook',label:'🧭 DP Logbook'},{id:'helideck',label:'🚁 Helideck'}];
 function renderNav(){document.getElementById('nav-bar').innerHTML=VIEWS.map(v=>`<div class="nav-tab ${v.id===activeView?'active':''}" onclick="setView('${v.id}')">${v.label}</div>`).join('');}
 function setView(v){activeView=v;document.body.classList.toggle('planning-mode',v==='planning');renderNav();renderRight();renderCrewPanel();refreshCompanyFilter();renderSummary();}
 
@@ -916,7 +916,7 @@ function renderRight(){
   document.body.classList.toggle('planning-mode',activeView==='planning');
   document.body.classList.toggle('logbook-mode',activeView==='logbook');
   document.body.classList.toggle('poc-mode',activeView==='poc');
-  const map={start:renderStartView,cabins:renderCabinsView,planning:renderPlanningView,history:renderHistoryView,crewlist:renderCrewListView,dms:renderDMSView,poc:renderPOCView,npt:renderNPTView,logbook:renderLogbookView};
+  const map={start:renderStartView,cabins:renderCabinsView,planning:renderPlanningView,history:renderHistoryView,crewlist:renderCrewListView,dms:renderDMSView,poc:renderPOCView,npt:renderNPTView,logbook:renderLogbookView,helideck:renderHelideckView};
   const fn=map[activeView]||renderCabinsView;
   try{fn();}
   catch(err){
@@ -2734,6 +2734,150 @@ document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('cli
     serverLoad().then(ok=>{clearInterval(t);if(ls)ls.style.display='none';if(ok){renderNav();renderAll();}});
   }else{serverLoad().then(ok=>{if(ok){renderNav();renderAll();}}).catch(()=>{});}
 })();
+
+
+/* ═══════════════════════════════════════════════════════════
+   HELIDECK MODULE
+   Reads from colleague's HMS tool via window.storage
+   Key: "helideck-day:YYYY-MM-DD"
+═══════════════════════════════════════════════════════════ */
+
+async function heliLoadDays(){
+  const days=[];
+  try{
+    const listRes=await window.storage.list('helideck-day:',false);
+    const keys=(listRes&&listRes.keys)||[];
+    for(const k of keys){
+      try{const g=await window.storage.get(k,false);if(g&&g.value){const d=JSON.parse(g.value);if(d&&d.date)days.push(d);}}catch(e){}
+    }
+  }catch(e){console.warn('Helideck storage error',e);}
+  return days.sort((a,b)=>a.date.localeCompare(b.date));
+}
+
+function heliStatus(d){
+  const g=d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:null;
+  if(g==null)return 'nodata';
+  if(d.hasWindow===true||d.windowSec>1800)return 'go';
+  if(g>0)return 'partial';
+  return 'nogo';
+}
+
+function heliFmt(s){const[y,m,day]=s.split('-');return parseInt(day)+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1]+' '+y;}
+function heliMoName(k){const[y,m]=k.split('-');return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1]+' '+y;}
+function heliAvg(arr){return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:null;}
+function heliN(v,d){d=d!=null?d:1;return(v==null||isNaN(+v))?'\u2014':(+v).toFixed(d);}
+function heliSeq(days,status){let max=0,cur=0;days.forEach(d=>{if(heliStatus(d)===status){cur++;if(cur>max)max=cur;}else cur=0;});return max;}
+
+function heliKpi(label,val,unit,sub,col){
+  const clrs={green:'#22c55e',amber:'#f59e0b',red:'#ef4444',teal:'#06b6d4',yellow:'#f0a500'};
+  const c=clrs[col]||'var(--text3)';
+  return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 12px;position:relative;overflow:hidden">'
+    +'<div style="position:absolute;top:0;left:0;right:0;height:3px;background:'+c+';border-radius:2px 2px 0 0"></div>'
+    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:6px">'+label+'</div>'
+    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;line-height:1;margin-bottom:3px;color:'+c+'">'+val+'<span style="font-size:14px;color:var(--text3)">'+unit+'</span></div>'
+    +'<div style="font-size:10px;color:var(--text3);line-height:1.4">'+sub+'</div></div>';
+}
+
+async function renderHelideckView(){
+  const rp=document.getElementById('right-panel');
+  rp.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">&#x1F681; Loading HMS data\u2026</div>';
+  const all=await heliLoadDays();
+  if(!all.length){
+    rp.innerHTML='<div class="right-head"><h2>&#x1F681; Helideck \xb7 NORMAM 27</h2></div><div class="empty-note"><strong>Nenhum dado HMS ainda.</strong><br>Use o sistema do colega para carregar os arquivos di\xe1rios. Os KPIs aparecer\xe3o aqui automaticamente.</div>';
+    return;
+  }
+  const real=all.filter(d=>heliStatus(d)!=='nodata');
+  const go=real.filter(d=>heliStatus(d)==='go');
+  const partial=real.filter(d=>heliStatus(d)==='partial');
+  const nogo=real.filter(d=>heliStatus(d)==='nogo');
+  const total=real.length;
+  const goRate=total?Math.round(go.length/total*100):0;
+  const gGP=real.filter(d=>d.greenPctDay!=null||d.greenPctDiurnal!=null);
+  const avgGP=gGP.length?heliAvg(gGP.map(d=>+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal))):null;
+  const g24=real.filter(d=>d.greenPct24!=null);
+  const avg24=g24.length?heliAvg(g24.map(d=>+d.greenPct24)):null;
+  const gW=go.filter(d=>d.windowSec>0);
+  const avgWin=gW.length?heliAvg(gW.map(d=>d.windowSec/3600)):null;
+  const seqGo=heliSeq(all,'go'),seqNg=heliSeq(all,'nogo');
+  const last=[...all].reverse().find(d=>heliStatus(d)!=='nodata');
+  const lst=last?heliStatus(last):'nodata';
+  const stClr={go:'#22c55e',partial:'#f59e0b',nogo:'#ef4444'};
+  const stLbl={go:'GO \u2014 Dia Oper\xe1vel',partial:'PARTIAL \u2014 Janela Limitada',nogo:'NO-GO \u2014 Sem Janela Verde'};
+  // Farol
+  const fl=['r','a','g'].map(l=>{const on=(lst==='nogo'&&l==='r')||(lst==='partial'&&l==='a')||(lst==='go'&&l==='g');const bc={r:'#ef4444',a:'#f59e0b',g:'#22c55e'}[l];return '<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:20px;height:20px;border-radius:50%;background:'+bc+';opacity:'+(on?1:.14)+(on?';box-shadow:0 0 12px 3px '+bc+'44':'')+'">'+'</div><div style="font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+{r:'Red',a:'Amb',g:'Green'}[l]+'</div></div>';}).join('');
+  // Bars
+  const bC={go:'#22c55e',partial:'#f59e0b',nogo:'#ef4444',nodata:'#94a3b8'};
+  const bars=all.map(d=>{const st=heliStatus(d);const g=+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:0);const h=st==='go'?Math.max(8,g):st==='partial'?Math.max(5,g):5;return '<div title="'+heliFmt(d.date)+' \u2014 '+st.toUpperCase()+' \u2014 Verde: '+heliN(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal)+'%" style="flex:1;min-width:3px;height:'+h+'px;background:'+bC[st]+';border-radius:2px 2px 0 0;opacity:.9;cursor:default"></div>';}).join('');
+  const ax=all.length>=2?'<span>'+heliFmt(all[0].date)+'</span><span>'+heliFmt(all[Math.floor(all.length/2)].date)+'</span><span>'+heliFmt(all[all.length-1].date)+'</span>':'';
+  // Monthly
+  const mo={};real.forEach(d=>{const k=d.date.slice(0,7);if(!mo[k])mo[k]={go:0,t:0};mo[k].t++;if(heliStatus(d)==='go')mo[k].go++;});
+  const mRows=Object.keys(mo).sort().map(k=>{const{go:g,t}=mo[k];const pct=t?Math.round(g/t*100):0;const c=pct>=50?'#22c55e':pct>=33?'#f59e0b':'#ef4444';return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:50px;font-size:10px;font-weight:600;color:var(--navy);font-family:\'Barlow Condensed\',sans-serif">'+heliMoName(k).slice(0,6)+'</div><div style="flex:1;height:7px;background:var(--bg3,#eee);border-radius:4px;overflow:hidden"><div style="width:'+Math.max(2,pct)+'%;height:100%;background:'+c+';border-radius:4px"></div></div><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:700;color:'+c+';min-width:36px;text-align:right">'+pct+'%</div><div style="font-size:10px;color:var(--text3);min-width:40px">'+g+'/'+t+' d</div></div>';}).join('');
+  // Causes
+  const tC={roll:0,pitch:0,inclination:0,shr:0,heave:0};
+  real.forEach(d=>{if(d.causeMinutes)Object.keys(tC).forEach(k=>{if(d.causeMinutes[k])tC[k]+=+d.causeMinutes[k];});});
+  const mxC=Math.max.apply(null,Object.values(tC).concat([1]));
+  const cLbl={roll:'Roll > 3\xb0',pitch:'Pitch > 3\xb0',inclination:'Inclina\xe7\xe3o > 3.5\xb0',shr:'SVArf > 1 m/s',heave:'Heave > 3 m'};
+  const anyC=Object.values(tC).some(v=>v>0);
+  const cHtml=anyC?Object.entries(cLbl).map(([k,l])=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:10px;color:var(--text3);min-width:110px">'+l+'</div><div style="flex:1;height:6px;background:var(--bg3,#eee);border-radius:3px;overflow:hidden"><div style="width:'+(tC[k]/mxC*100).toFixed(1)+'%;height:100%;background:#ef4444;border-radius:3px"></div></div><div style="font-size:10px;color:var(--text2);min-width:44px;text-align:right">'+Math.round(tC[k])+' min</div></div>').join(''):'<div style="font-size:11px;color:var(--text3)">Nenhum par\xe2metro excedeu limite ou dados de movimento n\xe3o foram exportados.</div>';
+  // Wind
+  const wGo=heliAvg(go.filter(d=>d.windAvg!=null).map(d=>+d.windAvg));
+  const wNg=heliAvg(nogo.filter(d=>d.windAvg!=null).map(d=>+d.windAvg));
+  const wHtml=(wGo!=null&&wNg!=null)?'<div style="display:flex;align-items:center;gap:20px;padding:12px 0"><div style="flex:1;text-align:center"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;color:#22c55e">'+wGo.toFixed(1)+'<span style="font-size:12px;color:var(--text3)"> kn</span></div><div style="font-size:10px;color:var(--text3)">dias GO</div></div><div style="width:1px;height:40px;background:var(--border)"></div><div style="flex:1;text-align:center"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;color:#ef4444">'+wNg.toFixed(1)+'<span style="font-size:12px;color:var(--text3)"> kn</span></div><div style="font-size:10px;color:var(--text3)">dias NO-GO</div></div></div>'+(wGo>wNg?'<div style="font-size:10px;color:#f59e0b;line-height:1.4">Vento maior nos dias GO \u2014 gargalo prov\xe1vel: DP (heave/pitch/roll), n\xe3o o vento.</div>':''):'<div style="font-size:11px;color:var(--text3);padding:10px 0">Sem dados de vento suficientes.</div>';
+  // Conclusions
+  const aW=avgWin!=null?avgWin.toFixed(1)+'h':'~5h';
+  const ccs=[{n:1,t:'Opera\xe7\xe3o vi\xe1vel em ~'+goRate+'% dos dias \u2014 janela m\xe9dia de '+aW+'. Uso real, n\xe3o marginal.',c:'#22c55e'},{n:2,t:'Padr\xe3o bimodal favorece voos programados por previs\xe3o do dia, n\xe3o disponibilidade 24/7.',c:'#06b6d4'},{n:3,t:'Sazonalidade forte. Novembro tipicamente melhor m\xeas. Um ano completo daria a curva sazonal inteira.',c:'#f59e0b'},{n:4,t:'Gargalo prov\xe1vel: DP (heave/pitch/roll), n\xe3o vento/swell. Exportar dados de movimento do HMS.',c:'#f0a500'}].map(c=>'<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:var(--bg3,#f5f5f5);border-radius:7px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:22px;font-weight:900;color:'+c.c+';flex-shrink:0;line-height:1">'+c.n+'</div><div style="font-size:11px;color:var(--text2);line-height:1.6">'+c.t+'</div></div>').join('');
+  const a90=all.filter(d=>{const g=+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:0);return g>90;}).length;
+  const b10=all.filter(d=>{const g=+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:100);return g<10&&heliStatus(d)!=='nodata';}).length;
+  rp.innerHTML=
+    '<div class="right-head"><h2>&#x1F681; Helideck Monitoring \xb7 NORMAM 27</h2>'
+    +'<div style="display:flex;gap:8px;align-items:center"><span style="font-size:11px;color:var(--text3)">'+heliFmt(all[0].date)+' \u2192 '+heliFmt(all[all.length-1].date)+' \xb7 '+all.length+' dias</span>'
+    +'<button class="btn btn-sm btn-light" onclick="renderHelideckView()" style="font-size:11px;padding:4px 10px">\u21bb Refresh</button></div></div>'
+    // FAROL
+    +'<div style="display:flex;align-items:center;gap:14px;padding:13px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">'
+    +fl
+    +'<div style="width:1px;height:40px;background:var(--border)"></div>'
+    +'<div style="flex:1"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:20px;font-weight:900;color:'+(stClr[lst]||'var(--text3)')+'">'+( last?stLbl[lst]:'SEM DADOS')+'</div>'
+    +(last?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Verde diurno: '+heliN(last.greenPctDay!=null?last.greenPctDay:last.greenPctDiurnal)+'% \xb7 Vento: '+heliN(last.windAvg,1)+' kn</div>':'')
+    +'</div>'
+    +(last?'<div style="font-size:10px;color:var(--text3);text-align:right">Last entry<br><strong style="color:var(--navy)">'+heliFmt(last.date)+'</strong></div>':'')
+    +'</div>'
+    // KPI ROW 1
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">'
+    +heliKpi('Dias Oper\xe1veis',go.length+'/'+total,'',goRate+'% dos dias monitorados','green')
+    +heliKpi('Disponib. Diurna',avgGP!=null?avgGP.toFixed(1):'\u2014','%','Verde em luz do dia (06\u201318h)','yellow')
+    +heliKpi('Disponib. 24h',avg24!=null?avg24.toFixed(1):'\u2014','%','Verde sobre o dia inteiro','teal')
+    +heliKpi('Janela M\xe9dia',avgWin!=null?avgWin.toFixed(1):'\u2014','h','Dura\xe7\xe3o t\xedpica (dias oper\xe1veis)','amber')
+    +'</div>'
+    // KPI ROW 2
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
+    +heliKpi('Dias sem Janela',nogo.length,'',total?Math.round(nogo.length/total*100):0+'% \u2014 zero verde cont\xednuo','red')
+    +heliKpi('Dias Parciais',partial.length,'','Verde mas <30 min cont\xednuo','amber')
+    +heliKpi('Maior Seq. GO',seqGo,' d','Oper\xe1veis consecutivos','green')
+    +heliKpi('Maior Seq. NO-GO',seqNg,' d','Sem janela consecutivos','red')
+    +'</div>'
+    // BAR CHART
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px">'
+    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">O Per\xedodo, Dia a Dia \u2014 do Vermelho ao Verde</div>'
+    +'<div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
+    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#22c55e"></div>Oper\xe1vel (GO)</div>'
+    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#f59e0b"></div>Parcial</div>'
+    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#ef4444"></div>No-go</div>'
+    +'</div>'
+    +'<div style="display:flex;gap:2px;align-items:flex-end;height:90px">'+bars+'</div>'
+    +'<div style="display:flex;justify-content:space-between;font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--text3);margin-top:4px">'+ax+'</div>'
+    +'<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">Padr\xe3o bimodal: '+a90+' dias acima de 90% \xb7 '+b10+' dias abaixo de 10%.</div>'
+    +'</div>'
+    // MONTHLY + CAUSES
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Disponibilidade por M\xeas</div>'+(mRows||'<div style="font-size:11px;color:var(--text3)">Sem dados mensais.</div>')+'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Causa Prov\xe1vel da Indisponibilidade</div>'+cHtml+'</div>'
+    +'</div>'
+    // WIND + CONCLUSIONS
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">Clima \xd7 Operabilidade \u2014 Vento M\xe9dio</div>'+wHtml+'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">Conclus\xf5es</div><div style="display:flex;flex-direction:column;gap:8px">'+ccs+'</div></div>'
+    +'</div>';
+}
 </script>
 </body>
 </html>
