@@ -999,6 +999,7 @@ function renderStartView(){
     ['⚓','Port of Call','Port calls',"setView('poc')",poc.length||'','linear-gradient(135deg,#1b5fa8,#2f86c8)','rgba(27,95,168,.32)'],
     ['⏱','NPT','Non-productive time log',"setView('npt')",npt.length||'','linear-gradient(135deg,#d9821a,#efa23a)','rgba(217,130,26,.32)'],
     ['🧭','DP Logbook','Generate DP logbooks',"setView('logbook')",'','linear-gradient(135deg,#34508a,#4a6cae)','rgba(52,80,138,.32)'],
+    ['🚁','Helideck','Availability study &amp; HMS',"setView('helideck')",'','linear-gradient(135deg,#0e7490,#22b8cf)','rgba(14,116,144,.32)'],
     ['📄','Gangway','Gangway list (Word)',"exportGangway()",'','linear-gradient(135deg,#566379,#74849c)','rgba(86,99,121,.30)'],
     ['💾','Backup','Data backup',"openBackupModal()",'','linear-gradient(135deg,#b06a00,#d99021)','rgba(176,106,0,.30)'],
   ];
@@ -2737,146 +2738,323 @@ document.querySelectorAll('.modal-overlay').forEach(el=>el.addEventListener('cli
 
 
 /* ═══════════════════════════════════════════════════════════
-   HELIDECK MODULE
-   Reads from colleague's HMS tool via window.storage
-   Key: "helideck-day:YYYY-MM-DD"
+   HELIDECK MODULE  —  Estudo de Disponibilidade · NORMAM-223/DPC
+   Self-contained: drop the raw HMS Excel here; the tab parses it,
+   computes daytime/24h availability, landing window, cause
+   breakdown and wind, then accumulates day-by-day in this browser.
+   Baked-in reference study (01 Aug → 21 Dec 2025) shown by default.
+   Storage key: "heli-cms-day:YYYY-MM-DD"  (own namespace)
 ═══════════════════════════════════════════════════════════ */
 
-async function heliLoadDays(){
-  const days=[];
-  try{
-    const listRes=await window.storage.list('helideck-day:',false);
-    const keys=(listRes&&listRes.keys)||[];
-    for(const k of keys){
-      try{const g=await window.storage.get(k,false);if(g&&g.value){const d=JSON.parse(g.value);if(d&&d.date)days.push(d);}}catch(e){}
+const HELI_LIMITS={roll:3.0,pitch:3.0,inclination:3.5,shr:1.0,heave:3.0};
+const HELI_PREFIX='heli-cms-day:';
+var heliSource='study';       // 'study' | 'loaded'
+var heliLoadedCache=null;     // cached loaded days from storage
+
+const HELI_SEED=[{"date":"2025-08-01","status":"partial","greenPctDay":23.2,"greenPct24":19.0,"windowSec":543,"causeMinutes":{"roll":29.9,"pitch":38.7,"inclination":3.7,"shr":0.7,"heave":85.4},"windAvg":20.8,"windGustMax":26.2},{"date":"2025-08-02","status":"go","greenPctDay":46.0,"greenPct24":37.7,"windowSec":24487,"causeMinutes":{"roll":8.5,"pitch":1.4,"inclination":1.3,"shr":0.6,"heave":4.3},"windAvg":18.1,"windGustMax":24.1},{"date":"2025-08-03","status":"nogo","greenPctDay":0.1,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":52.2,"pitch":128.7,"inclination":21.5,"shr":4.1,"heave":214.6},"windAvg":14.3,"windGustMax":21.2},{"date":"2025-08-04","status":"go","greenPctDay":52.2,"greenPct24":40.5,"windowSec":15638,"causeMinutes":{"roll":0.1,"pitch":10.7,"inclination":1.6,"shr":0.6,"heave":8.9},"windAvg":20.2,"windGustMax":26.3},{"date":"2025-08-05","status":"partial","greenPctDay":26.0,"greenPct24":21.4,"windowSec":311,"causeMinutes":{"roll":15.4,"pitch":21.4,"inclination":2.5,"shr":0.5,"heave":39.2},"windAvg":18.4,"windGustMax":25.8},{"date":"2025-08-06","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":136.3,"pitch":159.8,"inclination":11.2,"shr":5.2,"heave":224.5},"windAvg":18.3,"windGustMax":25.3},{"date":"2025-08-07","status":"go","greenPctDay":39.0,"greenPct24":32.3,"windowSec":11224,"causeMinutes":{"roll":9.6,"pitch":15.1,"inclination":2.9,"shr":0.1,"heave":7.6},"windAvg":17.9,"windGustMax":25.7},{"date":"2025-08-08","status":"nogo","greenPctDay":1.4,"greenPct24":1.0,"windowSec":0,"causeMinutes":{"roll":127.2,"pitch":108.6,"inclination":19.8,"shr":5.4,"heave":150.9},"windAvg":19.5,"windGustMax":25.4},{"date":"2025-08-09","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":47.4,"pitch":134.0,"inclination":16.0,"shr":4.1,"heave":314.6},"windAvg":21.0,"windGustMax":26.4},{"date":"2025-08-10","status":"go","greenPctDay":48.3,"greenPct24":38.5,"windowSec":22295,"causeMinutes":{"roll":2.2,"pitch":4.0,"inclination":0.4,"shr":1.2,"heave":20.6},"windAvg":18.2,"windGustMax":27.0},{"date":"2025-08-11","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":109.6,"pitch":81.9,"inclination":22.1,"shr":2.8,"heave":315.3},"windAvg":18.3,"windGustMax":24.7},{"date":"2025-08-12","status":"go","greenPctDay":46.9,"greenPct24":39.3,"windowSec":14052,"causeMinutes":{"roll":3.7,"pitch":8.6,"inclination":3.3,"shr":0.3,"heave":12.2},"windAvg":21.7,"windGustMax":29.4},{"date":"2025-08-14","status":"nogo","greenPctDay":0.1,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":56.3,"pitch":90.6,"inclination":7.4,"shr":2.1,"heave":168.5},"windAvg":12.9,"windGustMax":18.3},{"date":"2025-08-16","status":"partial","greenPctDay":25.1,"greenPct24":20.6,"windowSec":1145,"causeMinutes":{"roll":26.5,"pitch":46.5,"inclination":3.0,"shr":1.6,"heave":51.9},"windAvg":19.1,"windGustMax":24.7},{"date":"2025-08-17","status":"nogo","greenPctDay":1.2,"greenPct24":0.8,"windowSec":0,"causeMinutes":{"roll":72.7,"pitch":152.8,"inclination":5.8,"shr":0.3,"heave":215.7},"windAvg":14.6,"windGustMax":23.1},{"date":"2025-08-18","status":"go","greenPctDay":53.7,"greenPct24":41.9,"windowSec":19934,"causeMinutes":{"roll":8.5,"pitch":15.2,"inclination":1.6,"shr":1.2,"heave":15.6},"windAvg":19.3,"windGustMax":28.2},{"date":"2025-08-20","status":"nogo","greenPctDay":0.1,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":55.8,"pitch":178.6,"inclination":19.9,"shr":5.1,"heave":180.3},"windAvg":16.5,"windGustMax":20.4},{"date":"2025-08-21","status":"go","greenPctDay":47.8,"greenPct24":38.5,"windowSec":19510,"causeMinutes":{"roll":3.7,"pitch":12.8,"inclination":2.6,"shr":0.2,"heave":21.5},"windAvg":21.8,"windGustMax":29.7},{"date":"2025-08-22","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":50.6,"pitch":207.4,"inclination":9.6,"shr":1.2,"heave":167.7},"windAvg":14.5,"windGustMax":18.9},{"date":"2025-08-23","status":"go","greenPctDay":58.8,"greenPct24":47.7,"windowSec":19907,"causeMinutes":{"roll":2.1,"pitch":0.6,"inclination":1.8,"shr":0.9,"heave":9.9},"windAvg":23.1,"windGustMax":32.0},{"date":"2025-08-24","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":142.4,"pitch":133.3,"inclination":23.1,"shr":3.5,"heave":325.6},"windAvg":17.7,"windGustMax":23.7},{"date":"2025-08-26","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":149.3,"pitch":194.0,"inclination":17.0,"shr":6.0,"heave":254.5},"windAvg":12.8,"windGustMax":18.4},{"date":"2025-08-27","status":"partial","greenPctDay":11.2,"greenPct24":8.6,"windowSec":660,"causeMinutes":{"roll":17.1,"pitch":31.9,"inclination":7.8,"shr":1.2,"heave":89.2},"windAvg":18.2,"windGustMax":25.0},{"date":"2025-08-28","status":"go","greenPctDay":67.8,"greenPct24":53.6,"windowSec":23713,"causeMinutes":{"roll":0.4,"pitch":5.3,"inclination":1.1,"shr":1.1,"heave":20.6},"windAvg":22.2,"windGustMax":28.9},{"date":"2025-08-29","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":137.2,"pitch":228.1,"inclination":20.2,"shr":4.5,"heave":216.6},"windAvg":13.9,"windGustMax":18.4},{"date":"2025-08-30","status":"go","greenPctDay":46.4,"greenPct24":37.2,"windowSec":17827,"causeMinutes":{"roll":6.5,"pitch":2.1,"inclination":2.3,"shr":0.8,"heave":19.6},"windAvg":17.9,"windGustMax":25.6},{"date":"2025-08-31","status":"nogo","greenPctDay":1.3,"greenPct24":0.9,"windowSec":0,"causeMinutes":{"roll":133.5,"pitch":236.7,"inclination":6.1,"shr":4.0,"heave":255.8},"windAvg":20.8,"windGustMax":24.9},{"date":"2025-09-01","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":44.8,"pitch":231.4,"inclination":6.1,"shr":0.0,"heave":129.8},"windAvg":20.1,"windGustMax":24.3},{"date":"2025-09-02","status":"go","greenPctDay":67.2,"greenPct24":55.4,"windowSec":23675,"causeMinutes":{"roll":8.0,"pitch":12.7,"inclination":0.9,"shr":1.2,"heave":15.1},"windAvg":18.8,"windGustMax":26.8},{"date":"2025-09-03","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":93.7,"pitch":162.6,"inclination":23.4,"shr":2.5,"heave":286.7},"windAvg":16.0,"windGustMax":23.9},{"date":"2025-09-04","status":"nogo","greenPctDay":0.5,"greenPct24":0.2,"windowSec":0,"causeMinutes":{"roll":71.5,"pitch":191.4,"inclination":17.5,"shr":3.7,"heave":122.4},"windAvg":18.8,"windGustMax":23.1},{"date":"2025-09-05","status":"go","greenPctDay":47.0,"greenPct24":38.0,"windowSec":12007,"causeMinutes":{"roll":8.4,"pitch":1.6,"inclination":0.3,"shr":0.6,"heave":1.4},"windAvg":20.4,"windGustMax":29.1},{"date":"2025-09-06","status":"nogo","greenPctDay":1.4,"greenPct24":0.9,"windowSec":0,"causeMinutes":{"roll":126.3,"pitch":92.2,"inclination":22.3,"shr":5.1,"heave":156.2},"windAvg":19.9,"windGustMax":27.0},{"date":"2025-09-07","status":"nogo","greenPctDay":1.9,"greenPct24":1.2,"windowSec":0,"causeMinutes":{"roll":46.0,"pitch":225.9,"inclination":19.8,"shr":3.5,"heave":287.8},"windAvg":19.1,"windGustMax":22.7},{"date":"2025-09-09","status":"partial","greenPctDay":26.3,"greenPct24":20.4,"windowSec":961,"causeMinutes":{"roll":36.4,"pitch":42.7,"inclination":9.8,"shr":1.7,"heave":47.2},"windAvg":18.4,"windGustMax":26.0},{"date":"2025-09-10","status":"go","greenPctDay":43.6,"greenPct24":35.1,"windowSec":18331,"causeMinutes":{"roll":5.5,"pitch":2.4,"inclination":1.1,"shr":0.2,"heave":2.6},"windAvg":22.7,"windGustMax":27.8},{"date":"2025-09-11","status":"nogo","greenPctDay":1.3,"greenPct24":0.8,"windowSec":0,"causeMinutes":{"roll":67.6,"pitch":91.9,"inclination":18.4,"shr":0.0,"heave":297.3},"windAvg":13.9,"windGustMax":19.2},{"date":"2025-09-12","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":140.1,"pitch":195.2,"inclination":9.9,"shr":5.2,"heave":155.0},"windAvg":20.4,"windGustMax":25.6},{"date":"2025-09-13","status":"go","greenPctDay":58.6,"greenPct24":49.5,"windowSec":15207,"causeMinutes":{"roll":6.3,"pitch":5.1,"inclination":1.0,"shr":0.3,"heave":15.3},"windAvg":23.0,"windGustMax":32.0},{"date":"2025-09-14","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":51.9,"pitch":81.8,"inclination":13.7,"shr":5.3,"heave":277.0},"windAvg":20.6,"windGustMax":28.6},{"date":"2025-09-15","status":"nogo","greenPctDay":0.2,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":85.6,"pitch":96.7,"inclination":18.6,"shr":5.2,"heave":166.1},"windAvg":20.7,"windGustMax":28.7},{"date":"2025-09-16","status":"go","greenPctDay":44.8,"greenPct24":37.5,"windowSec":11887,"causeMinutes":{"roll":6.8,"pitch":14.8,"inclination":2.2,"shr":0.8,"heave":8.9},"windAvg":21.3,"windGustMax":26.6},{"date":"2025-09-17","status":"nogo","greenPctDay":1.6,"greenPct24":1.1,"windowSec":0,"causeMinutes":{"roll":45.9,"pitch":107.6,"inclination":12.3,"shr":4.3,"heave":292.1},"windAvg":19.8,"windGustMax":24.4},{"date":"2025-09-18","status":"nogo","greenPctDay":1.5,"greenPct24":1.1,"windowSec":0,"causeMinutes":{"roll":129.0,"pitch":104.1,"inclination":8.5,"shr":3.0,"heave":226.5},"windAvg":18.7,"windGustMax":26.1},{"date":"2025-09-19","status":"go","greenPctDay":46.8,"greenPct24":38.9,"windowSec":23110,"causeMinutes":{"roll":7.7,"pitch":7.0,"inclination":0.1,"shr":0.8,"heave":9.2},"windAvg":19.6,"windGustMax":26.4},{"date":"2025-09-20","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":127.1,"pitch":89.3,"inclination":14.4,"shr":1.8,"heave":332.9},"windAvg":17.5,"windGustMax":22.5},{"date":"2025-09-21","status":"nogo","greenPctDay":1.5,"greenPct24":0.9,"windowSec":0,"causeMinutes":{"roll":71.4,"pitch":162.6,"inclination":20.7,"shr":3.5,"heave":331.7},"windAvg":14.2,"windGustMax":22.2},{"date":"2025-09-22","status":"go","greenPctDay":62.3,"greenPct24":50.6,"windowSec":10383,"causeMinutes":{"roll":3.1,"pitch":5.0,"inclination":2.0,"shr":0.9,"heave":9.1},"windAvg":18.8,"windGustMax":25.2},{"date":"2025-09-23","status":"nogo","greenPctDay":1.3,"greenPct24":0.8,"windowSec":0,"causeMinutes":{"roll":80.8,"pitch":83.8,"inclination":21.5,"shr":1.4,"heave":339.5},"windAvg":14.4,"windGustMax":19.7},{"date":"2025-09-24","status":"partial","greenPctDay":32.2,"greenPct24":25.5,"windowSec":1395,"causeMinutes":{"roll":10.5,"pitch":26.1,"inclination":3.8,"shr":2.1,"heave":62.3},"windAvg":15.5,"windGustMax":22.1},{"date":"2025-09-25","status":"nogo","greenPctDay":0.7,"greenPct24":0.3,"windowSec":0,"causeMinutes":{"roll":130.7,"pitch":95.7,"inclination":12.7,"shr":4.3,"heave":195.3},"windAvg":13.1,"windGustMax":18.4},{"date":"2025-09-26","status":"go","greenPctDay":58.4,"greenPct24":47.4,"windowSec":13842,"causeMinutes":{"roll":2.2,"pitch":1.2,"inclination":0.1,"shr":0.6,"heave":17.0},"windAvg":21.0,"windGustMax":25.8},{"date":"2025-09-27","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":129.7,"pitch":199.9,"inclination":24.2,"shr":2.8,"heave":182.0},"windAvg":17.1,"windGustMax":25.2},{"date":"2025-09-28","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":122.7,"pitch":105.2,"inclination":18.7,"shr":3.7,"heave":330.8},"windAvg":21.2,"windGustMax":28.4},{"date":"2025-09-29","status":"go","greenPctDay":67.2,"greenPct24":55.6,"windowSec":20761,"causeMinutes":{"roll":0.6,"pitch":11.7,"inclination":0.1,"shr":0.2,"heave":21.2},"windAvg":18.8,"windGustMax":26.4},{"date":"2025-09-30","status":"nogo","greenPctDay":1.8,"greenPct24":1.3,"windowSec":0,"causeMinutes":{"roll":49.3,"pitch":111.1,"inclination":12.8,"shr":2.5,"heave":165.0},"windAvg":20.4,"windGustMax":25.9},{"date":"2025-10-01","status":"go","greenPctDay":59.6,"greenPct24":49.9,"windowSec":21985,"causeMinutes":{"roll":4.5,"pitch":8.2,"inclination":1.9,"shr":0.6,"heave":16.8},"windAvg":22.9,"windGustMax":30.5},{"date":"2025-10-02","status":"go","greenPctDay":61.8,"greenPct24":48.2,"windowSec":13771,"causeMinutes":{"roll":1.2,"pitch":2.0,"inclination":1.6,"shr":1.1,"heave":10.0},"windAvg":21.1,"windGustMax":28.9},{"date":"2025-10-03","status":"go","greenPctDay":70.0,"greenPct24":57.4,"windowSec":20803,"causeMinutes":{"roll":3.7,"pitch":5.0,"inclination":1.7,"shr":0.1,"heave":0.1},"windAvg":21.3,"windGustMax":28.8},{"date":"2025-10-04","status":"go","greenPctDay":60.6,"greenPct24":48.3,"windowSec":17358,"causeMinutes":{"roll":9.6,"pitch":13.2,"inclination":3.0,"shr":0.9,"heave":2.5},"windAvg":21.0,"windGustMax":26.6},{"date":"2025-10-05","status":"go","greenPctDay":40.5,"greenPct24":33.9,"windowSec":21710,"causeMinutes":{"roll":8.8,"pitch":9.6,"inclination":3.0,"shr":0.1,"heave":20.6},"windAvg":22.9,"windGustMax":27.5},{"date":"2025-10-06","status":"go","greenPctDay":71.8,"greenPct24":59.4,"windowSec":20675,"causeMinutes":{"roll":3.1,"pitch":13.7,"inclination":0.2,"shr":1.0,"heave":8.7},"windAvg":21.4,"windGustMax":26.0},{"date":"2025-10-07","status":"go","greenPctDay":60.9,"greenPct24":49.2,"windowSec":11616,"causeMinutes":{"roll":8.5,"pitch":12.9,"inclination":1.2,"shr":0.2,"heave":6.0},"windAvg":20.3,"windGustMax":26.3},{"date":"2025-10-08","status":"go","greenPctDay":59.4,"greenPct24":49.5,"windowSec":24139,"causeMinutes":{"roll":4.7,"pitch":10.0,"inclination":2.6,"shr":0.8,"heave":3.3},"windAvg":19.6,"windGustMax":26.7},{"date":"2025-10-09","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":101.1,"pitch":156.7,"inclination":15.9,"shr":0.7,"heave":160.2},"windAvg":19.4,"windGustMax":25.3},{"date":"2025-10-10","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":115.4,"pitch":113.0,"inclination":23.6,"shr":5.7,"heave":211.0},"windAvg":16.2,"windGustMax":20.7},{"date":"2025-10-11","status":"nogo","greenPctDay":0.1,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":94.2,"pitch":174.3,"inclination":25.0,"shr":5.8,"heave":272.4},"windAvg":17.8,"windGustMax":25.4},{"date":"2025-10-12","status":"nogo","greenPctDay":1.3,"greenPct24":0.9,"windowSec":0,"causeMinutes":{"roll":141.8,"pitch":192.2,"inclination":13.5,"shr":4.3,"heave":328.5},"windAvg":12.7,"windGustMax":17.6},{"date":"2025-10-13","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":99.1,"pitch":186.3,"inclination":21.1,"shr":4.1,"heave":181.6},"windAvg":12.5,"windGustMax":20.0},{"date":"2025-10-14","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":100.7,"pitch":101.4,"inclination":19.4,"shr":1.1,"heave":183.5},"windAvg":13.4,"windGustMax":19.4},{"date":"2025-10-15","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":146.6,"pitch":190.1,"inclination":6.3,"shr":2.9,"heave":178.4},"windAvg":14.8,"windGustMax":20.7},{"date":"2025-10-16","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":84.9,"pitch":172.6,"inclination":16.2,"shr":5.3,"heave":180.6},"windAvg":21.0,"windGustMax":27.7},{"date":"2025-10-17","status":"nogo","greenPctDay":1.8,"greenPct24":1.3,"windowSec":0,"causeMinutes":{"roll":66.9,"pitch":187.8,"inclination":24.7,"shr":5.2,"heave":331.0},"windAvg":14.0,"windGustMax":20.1},{"date":"2025-10-18","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":80.6,"pitch":231.0,"inclination":24.8,"shr":3.5,"heave":225.3},"windAvg":14.9,"windGustMax":22.1},{"date":"2025-10-19","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":56.6,"pitch":99.6,"inclination":21.0,"shr":3.4,"heave":250.5},"windAvg":20.7,"windGustMax":28.9},{"date":"2025-10-20","status":"go","greenPctDay":57.5,"greenPct24":46.1,"windowSec":16229,"causeMinutes":{"roll":5.7,"pitch":4.9,"inclination":0.4,"shr":0.1,"heave":21.5},"windAvg":22.3,"windGustMax":26.9},{"date":"2025-10-21","status":"nogo","greenPctDay":0.8,"greenPct24":0.4,"windowSec":0,"causeMinutes":{"roll":68.1,"pitch":234.2,"inclination":22.1,"shr":1.9,"heave":285.0},"windAvg":20.2,"windGustMax":25.6},{"date":"2025-10-23","status":"go","greenPctDay":72.7,"greenPct24":59.1,"windowSec":16910,"causeMinutes":{"roll":7.5,"pitch":9.1,"inclination":0.5,"shr":0.3,"heave":8.1},"windAvg":18.1,"windGustMax":23.2},{"date":"2025-10-24","status":"nogo","greenPctDay":0.1,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":107.8,"pitch":200.5,"inclination":19.7,"shr":2.4,"heave":231.8},"windAvg":15.3,"windGustMax":23.5},{"date":"2025-10-25","status":"partial","greenPctDay":11.5,"greenPct24":9.5,"windowSec":420,"causeMinutes":{"roll":10.2,"pitch":27.9,"inclination":8.3,"shr":0.2,"heave":49.5},"windAvg":17.9,"windGustMax":25.0},{"date":"2025-10-26","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":141.1,"pitch":150.1,"inclination":5.7,"shr":3.4,"heave":314.5},"windAvg":17.7,"windGustMax":25.2},{"date":"2025-10-27","status":"go","greenPctDay":67.0,"greenPct24":54.9,"windowSec":24639,"causeMinutes":{"roll":9.6,"pitch":11.1,"inclination":2.2,"shr":0.1,"heave":10.5},"windAvg":22.7,"windGustMax":28.1},{"date":"2025-10-28","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":148.8,"pitch":160.3,"inclination":21.8,"shr":4.7,"heave":333.8},"windAvg":13.8,"windGustMax":19.5},{"date":"2025-10-29","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":56.5,"pitch":177.4,"inclination":14.1,"shr":2.2,"heave":229.4},"windAvg":14.4,"windGustMax":22.4},{"date":"2025-10-30","status":"go","greenPctDay":67.3,"greenPct24":54.8,"windowSec":19600,"causeMinutes":{"roll":5.4,"pitch":4.3,"inclination":0.9,"shr":0.7,"heave":6.1},"windAvg":23.3,"windGustMax":32.4},{"date":"2025-10-31","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":41.0,"pitch":151.5,"inclination":12.4,"shr":4.8,"heave":258.5},"windAvg":12.9,"windGustMax":19.6},{"date":"2025-11-01","status":"nogo","greenPctDay":1.9,"greenPct24":1.4,"windowSec":0,"causeMinutes":{"roll":107.1,"pitch":116.4,"inclination":11.8,"shr":1.3,"heave":125.9},"windAvg":21.2,"windGustMax":28.9},{"date":"2025-11-03","status":"nogo","greenPctDay":0.4,"greenPct24":0.1,"windowSec":0,"causeMinutes":{"roll":96.6,"pitch":180.7,"inclination":20.9,"shr":5.4,"heave":246.6},"windAvg":21.1,"windGustMax":27.2},{"date":"2025-11-04","status":"nogo","greenPctDay":1.3,"greenPct24":0.8,"windowSec":0,"causeMinutes":{"roll":54.2,"pitch":105.6,"inclination":12.3,"shr":0.3,"heave":264.8},"windAvg":20.0,"windGustMax":25.3},{"date":"2025-11-05","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":64.2,"pitch":222.5,"inclination":19.5,"shr":2.5,"heave":260.3},"windAvg":13.7,"windGustMax":17.3},{"date":"2025-11-06","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":78.9,"pitch":125.3,"inclination":12.6,"shr":3.1,"heave":123.8},"windAvg":16.7,"windGustMax":25.2},{"date":"2025-11-07","status":"nogo","greenPctDay":0.2,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":89.1,"pitch":191.9,"inclination":20.0,"shr":0.6,"heave":220.2},"windAvg":19.9,"windGustMax":24.4},{"date":"2025-11-08","status":"go","greenPctDay":64.0,"greenPct24":50.1,"windowSec":15358,"causeMinutes":{"roll":4.3,"pitch":1.7,"inclination":2.8,"shr":1.0,"heave":13.5},"windAvg":17.9,"windGustMax":26.4},{"date":"2025-11-09","status":"go","greenPctDay":63.7,"greenPct24":49.7,"windowSec":10416,"causeMinutes":{"roll":9.4,"pitch":12.4,"inclination":2.9,"shr":0.9,"heave":16.4},"windAvg":23.6,"windGustMax":32.6},{"date":"2025-11-11","status":"go","greenPctDay":41.5,"greenPct24":34.3,"windowSec":20513,"causeMinutes":{"roll":8.3,"pitch":6.6,"inclination":0.4,"shr":0.7,"heave":17.7},"windAvg":18.4,"windGustMax":26.3},{"date":"2025-11-12","status":"go","greenPctDay":44.9,"greenPct24":37.9,"windowSec":13572,"causeMinutes":{"roll":0.2,"pitch":8.1,"inclination":2.5,"shr":0.9,"heave":17.4},"windAvg":22.8,"windGustMax":30.3},{"date":"2025-11-13","status":"go","greenPctDay":60.3,"greenPct24":49.4,"windowSec":22167,"causeMinutes":{"roll":11.0,"pitch":15.7,"inclination":0.4,"shr":0.7,"heave":6.3},"windAvg":19.2,"windGustMax":26.9},{"date":"2025-11-14","status":"go","greenPctDay":52.0,"greenPct24":42.8,"windowSec":15250,"causeMinutes":{"roll":8.2,"pitch":1.4,"inclination":0.1,"shr":0.5,"heave":3.1},"windAvg":23.2,"windGustMax":30.3},{"date":"2025-11-15","status":"go","greenPctDay":47.5,"greenPct24":39.3,"windowSec":19489,"causeMinutes":{"roll":10.3,"pitch":7.5,"inclination":1.6,"shr":1.1,"heave":18.0},"windAvg":21.6,"windGustMax":27.9},{"date":"2025-11-16","status":"go","greenPctDay":48.7,"greenPct24":38.8,"windowSec":19351,"causeMinutes":{"roll":0.9,"pitch":12.4,"inclination":2.8,"shr":0.2,"heave":1.4},"windAvg":22.2,"windGustMax":27.7},{"date":"2025-11-17","status":"go","greenPctDay":47.7,"greenPct24":38.2,"windowSec":19054,"causeMinutes":{"roll":8.6,"pitch":6.1,"inclination":1.1,"shr":0.6,"heave":18.1},"windAvg":19.8,"windGustMax":27.0},{"date":"2025-11-18","status":"go","greenPctDay":65.5,"greenPct24":55.5,"windowSec":19333,"causeMinutes":{"roll":3.5,"pitch":3.7,"inclination":3.1,"shr":0.8,"heave":14.6},"windAvg":21.0,"windGustMax":27.7},{"date":"2025-11-19","status":"partial","greenPctDay":31.5,"greenPct24":24.6,"windowSec":1186,"causeMinutes":{"roll":26.8,"pitch":35.7,"inclination":4.4,"shr":1.4,"heave":53.4},"windAvg":15.7,"windGustMax":24.2},{"date":"2025-11-20","status":"go","greenPctDay":41.8,"greenPct24":34.3,"windowSec":17898,"causeMinutes":{"roll":8.5,"pitch":4.0,"inclination":0.6,"shr":0.6,"heave":8.0},"windAvg":17.8,"windGustMax":26.4},{"date":"2025-11-21","status":"go","greenPctDay":52.1,"greenPct24":43.5,"windowSec":12792,"causeMinutes":{"roll":2.8,"pitch":11.0,"inclination":0.8,"shr":1.0,"heave":16.9},"windAvg":23.4,"windGustMax":31.8},{"date":"2025-11-22","status":"go","greenPctDay":49.1,"greenPct24":39.3,"windowSec":20667,"causeMinutes":{"roll":0.7,"pitch":11.4,"inclination":0.2,"shr":0.3,"heave":19.7},"windAvg":22.6,"windGustMax":30.9},{"date":"2025-11-23","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":117.8,"pitch":146.1,"inclination":15.1,"shr":3.3,"heave":155.7},"windAvg":16.6,"windGustMax":22.8},{"date":"2025-11-24","status":"partial","greenPctDay":31.1,"greenPct24":25.2,"windowSec":938,"causeMinutes":{"roll":10.3,"pitch":25.8,"inclination":2.8,"shr":1.3,"heave":71.8},"windAvg":15.7,"windGustMax":24.0},{"date":"2025-11-25","status":"go","greenPctDay":65.3,"greenPct24":54.4,"windowSec":17900,"causeMinutes":{"roll":3.9,"pitch":11.7,"inclination":0.9,"shr":1.0,"heave":11.4},"windAvg":22.0,"windGustMax":30.3},{"date":"2025-11-26","status":"go","greenPctDay":61.8,"greenPct24":49.3,"windowSec":21830,"causeMinutes":{"roll":4.4,"pitch":11.1,"inclination":0.1,"shr":1.0,"heave":14.6},"windAvg":21.1,"windGustMax":29.9},{"date":"2025-11-27","status":"go","greenPctDay":53.5,"greenPct24":43.7,"windowSec":11642,"causeMinutes":{"roll":0.3,"pitch":6.9,"inclination":3.0,"shr":0.8,"heave":1.7},"windAvg":23.3,"windGustMax":31.5},{"date":"2025-11-28","status":"nogo","greenPctDay":1.0,"greenPct24":0.6,"windowSec":0,"causeMinutes":{"roll":52.6,"pitch":123.2,"inclination":14.4,"shr":0.4,"heave":139.5},"windAvg":20.6,"windGustMax":27.3},{"date":"2025-11-29","status":"go","greenPctDay":63.3,"greenPct24":51.5,"windowSec":22344,"causeMinutes":{"roll":5.7,"pitch":7.1,"inclination":2.5,"shr":0.4,"heave":0.9},"windAvg":18.1,"windGustMax":27.1},{"date":"2025-11-30","status":"go","greenPctDay":55.4,"greenPct24":45.8,"windowSec":20092,"causeMinutes":{"roll":2.0,"pitch":14.2,"inclination":0.4,"shr":0.0,"heave":16.3},"windAvg":23.2,"windGustMax":30.5},{"date":"2025-12-01","status":"go","greenPctDay":45.4,"greenPct24":36.9,"windowSec":18985,"causeMinutes":{"roll":9.6,"pitch":15.7,"inclination":1.0,"shr":0.1,"heave":13.0},"windAvg":18.9,"windGustMax":24.5},{"date":"2025-12-02","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":78.9,"pitch":225.9,"inclination":13.1,"shr":1.9,"heave":233.4},"windAvg":16.4,"windGustMax":22.8},{"date":"2025-12-03","status":"go","greenPctDay":56.3,"greenPct24":46.6,"windowSec":17689,"causeMinutes":{"roll":3.7,"pitch":14.7,"inclination":1.7,"shr":0.4,"heave":12.1},"windAvg":22.5,"windGustMax":26.8},{"date":"2025-12-04","status":"partial","greenPctDay":25.9,"greenPct24":21.2,"windowSec":1504,"causeMinutes":{"roll":36.9,"pitch":50.9,"inclination":3.2,"shr":0.8,"heave":81.5},"windAvg":15.3,"windGustMax":23.0},{"date":"2025-12-05","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":81.3,"pitch":195.3,"inclination":14.4,"shr":1.0,"heave":332.8},"windAvg":12.7,"windGustMax":17.8},{"date":"2025-12-06","status":"go","greenPctDay":42.0,"greenPct24":35.3,"windowSec":23979,"causeMinutes":{"roll":6.0,"pitch":12.1,"inclination":2.2,"shr":0.7,"heave":8.1},"windAvg":22.4,"windGustMax":28.8},{"date":"2025-12-07","status":"go","greenPctDay":64.8,"greenPct24":50.5,"windowSec":15990,"causeMinutes":{"roll":3.0,"pitch":2.1,"inclination":3.0,"shr":0.3,"heave":6.1},"windAvg":20.9,"windGustMax":26.6},{"date":"2025-12-08","status":"nogo","greenPctDay":1.9,"greenPct24":1.4,"windowSec":0,"causeMinutes":{"roll":50.2,"pitch":194.1,"inclination":21.1,"shr":4.3,"heave":161.7},"windAvg":14.8,"windGustMax":18.5},{"date":"2025-12-09","status":"go","greenPctDay":46.1,"greenPct24":38.0,"windowSec":11377,"causeMinutes":{"roll":3.2,"pitch":5.8,"inclination":1.8,"shr":0.9,"heave":20.5},"windAvg":22.2,"windGustMax":31.4},{"date":"2025-12-10","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":81.4,"pitch":123.0,"inclination":8.8,"shr":5.9,"heave":310.9},"windAvg":16.6,"windGustMax":24.1},{"date":"2025-12-11","status":"partial","greenPctDay":27.7,"greenPct24":22.8,"windowSec":1483,"causeMinutes":{"roll":35.6,"pitch":31.3,"inclination":5.6,"shr":2.6,"heave":49.8},"windAvg":16.8,"windGustMax":22.8},{"date":"2025-12-12","status":"go","greenPctDay":71.2,"greenPct24":59.8,"windowSec":17222,"causeMinutes":{"roll":4.5,"pitch":15.4,"inclination":3.1,"shr":1.2,"heave":19.4},"windAvg":18.8,"windGustMax":27.9},{"date":"2025-12-13","status":"nogo","greenPctDay":0.3,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":70.3,"pitch":120.8,"inclination":8.2,"shr":0.0,"heave":171.5},"windAvg":15.3,"windGustMax":20.5},{"date":"2025-12-14","status":"go","greenPctDay":64.4,"greenPct24":51.2,"windowSec":16045,"causeMinutes":{"roll":7.6,"pitch":3.9,"inclination":2.1,"shr":1.2,"heave":15.1},"windAvg":23.6,"windGustMax":31.5},{"date":"2025-12-15","status":"go","greenPctDay":44.8,"greenPct24":35.2,"windowSec":16270,"causeMinutes":{"roll":3.3,"pitch":12.7,"inclination":1.8,"shr":0.4,"heave":5.0},"windAvg":19.7,"windGustMax":27.1},{"date":"2025-12-17","status":"nogo","greenPctDay":0,"greenPct24":0,"windowSec":0,"causeMinutes":{"roll":134.8,"pitch":171.7,"inclination":18.3,"shr":0.0,"heave":247.8},"windAvg":14.9,"windGustMax":22.2},{"date":"2025-12-18","status":"partial","greenPctDay":31.1,"greenPct24":24.7,"windowSec":585,"causeMinutes":{"roll":31.9,"pitch":45.0,"inclination":8.9,"shr":1.6,"heave":41.1},"windAvg":18.5,"windGustMax":25.3},{"date":"2025-12-19","status":"go","greenPctDay":42.1,"greenPct24":32.9,"windowSec":16305,"causeMinutes":{"roll":4.2,"pitch":3.8,"inclination":0.0,"shr":0.4,"heave":15.1},"windAvg":18.8,"windGustMax":27.3},{"date":"2025-12-20","status":"nogo","greenPctDay":0.4,"greenPct24":0.2,"windowSec":0,"causeMinutes":{"roll":45.2,"pitch":183.1,"inclination":20.1,"shr":5.1,"heave":327.4},"windAvg":19.1,"windGustMax":26.9},{"date":"2025-12-21","status":"go","greenPctDay":63.2,"greenPct24":51.0,"windowSec":21214,"causeMinutes":{"roll":5.2,"pitch":3.5,"inclination":1.8,"shr":1.2,"heave":1.3},"windAvg":20.3,"windGustMax":26.4}];
+
+/* ---------- Excel parsing (HMS raw export) ---------- */
+function heliNormHdr(h){return String(h==null?'':h).trim().toUpperCase();}
+function heliFindCol(map,names){for(var i=0;i<names.length;i++){if(Object.prototype.hasOwnProperty.call(map,names[i]))return map[names[i]];}return -1;}
+
+function heliParseWorkbook(wb){
+  var records=[],usedLegacy=false,dayNightMissing=false;
+  var names=wb.SheetNames||[];
+  for(var s=0;s<names.length;s++){
+    var ws=wb.Sheets[names[s]];
+    var rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:false});
+    if(!rows||rows.length<2)continue;
+    var hdr=rows[0],map={};
+    for(var c=0;c<hdr.length;c++)map[heliNormHdr(hdr[c])]=c;
+    var cT=heliFindCol(map,['DATE/TIME','DATE / TIME','DATETIME']);
+    var cG=heliFindCol(map,['GREENLIGHT']);
+    var cR=heliFindCol(map,['REDLIGHT']);
+    var cDN=heliFindCol(map,['DAYNIGHTSTATUSNO']);
+    var cDL=heliFindCol(map,['DAYNIGHTSTATUS']);
+    var cRoll=heliFindCol(map,['MAXROLL20MIN','MAXROLLPORT','MAXROLLSTB']);
+    var cPitch=heliFindCol(map,['MAXPITCH20MIN','MAXPITCHFWD','MAXPITCHAFT']);
+    var cIncl=heliFindCol(map,['MAXHELIINCL']);
+    var cShr=heliFindCol(map,['SHRROUNDED']);
+    var cHeave=heliFindCol(map,['MAXHEAVE']);
+    var cWS=heliFindCol(map,['WINDSPEED2']);
+    var cWG=heliFindCol(map,['WINDGUSTKN3S']);
+    if(cT<0||cG<0||cR<0)continue;
+    if(cDN<0&&cDL<0)dayNightMissing=true;
+    for(var r=1;r<rows.length;r++){
+      var row=rows[r];if(!row||row[cT]==null)continue;
+      var raw=row[cT],ts;
+      if(raw instanceof Date)ts=raw;
+      else if(typeof raw==='number')ts=new Date(Math.round((raw-25569)*86400*1000));
+      else ts=new Date(raw);
+      if(isNaN(ts.getTime()))continue;
+      var green=parseFloat(row[cG]),red=parseFloat(row[cR]);
+      var isDay=null;
+      if(cDN>=0){var dv=parseFloat(row[cDN]);if(dv===1)isDay=true;else if(dv===2)isDay=false;}
+      else if(cDL>=0){usedLegacy=true;var tv=String(row[cDL]).trim().toUpperCase();if(tv==='DAY')isDay=true;else if(tv==='NIGHT')isDay=false;}
+      records.push({ts:ts,green:green===1?1:0,red:red===1?1:0,isDay:isDay,
+        roll:cRoll>=0?parseFloat(row[cRoll]):null,pitch:cPitch>=0?parseFloat(row[cPitch]):null,
+        incl:cIncl>=0?parseFloat(row[cIncl]):null,shr:cShr>=0?parseFloat(row[cShr]):null,
+        heave:cHeave>=0?parseFloat(row[cHeave]):null,
+        windSpeed:cWS>=0?parseFloat(row[cWS]):null,windGust:cWG>=0?parseFloat(row[cWG]):null});
     }
-  }catch(e){console.warn('Helideck storage error',e);}
-  return days.sort((a,b)=>a.date.localeCompare(b.date));
+  }
+  records.sort(function(a,b){return a.ts-b.ts;});
+  return {records:records,usedLegacy:usedLegacy,dayNightMissing:dayNightMissing};
 }
 
-function heliStatus(d){
-  const g=d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:null;
-  if(g==null)return 'nodata';
-  if(d.hasWindow===true||d.windowSec>1800)return 'go';
-  if(g>0)return 'partial';
-  return 'nogo';
+function heliDeltas(records){
+  var d=new Array(records.length).fill(60),known=[];
+  for(var i=0;i<records.length-1;i++){var dt=(records[i+1].ts-records[i].ts)/1000;if(dt>0&&dt<21600){d[i]=dt;known.push(dt);}}
+  if(records.length>0){known.sort(function(a,b){return a-b;});d[records.length-1]=known.length?known[Math.floor(known.length/2)]:60;}
+  return d;
+}
+function heliClassify(r){if(r.green===1&&r.red===1)return 'trans';if(r.green===1)return 'green';if(r.red===1)return 'red';return 'unknown';}
+
+function heliAggregate(records,deltas,filterFn){
+  var total=0,green=0,red=0,trans=0,unknown=0;
+  var cs={roll:0,pitch:0,inclination:0,shr:0,heave:0};
+  var wSum=0,wN=0,wGust=0;
+  for(var i=0;i<records.length;i++){
+    var r=records[i];if(filterFn&&!filterFn(r))continue;
+    var d=deltas[i];total+=d;var st=heliClassify(r);
+    if(st==='green')green+=d;else if(st==='red')red+=d;else if(st==='trans')trans+=d;else unknown+=d;
+    if(st==='red'||st==='trans'){
+      if(r.roll!=null&&r.roll>HELI_LIMITS.roll)cs.roll+=d;
+      if(r.pitch!=null&&r.pitch>HELI_LIMITS.pitch)cs.pitch+=d;
+      if(r.incl!=null&&r.incl>HELI_LIMITS.inclination)cs.inclination+=d;
+      if(r.shr!=null&&r.shr>HELI_LIMITS.shr)cs.shr+=d;
+      if(r.heave!=null&&r.heave>HELI_LIMITS.heave)cs.heave+=d;
+    }
+    if(r.windSpeed!=null){wSum+=r.windSpeed;wN++;}
+    if(r.windGust!=null&&r.windGust>wGust)wGust=r.windGust;
+  }
+  return {totalSec:total,greenSec:green,redSec:red,transSec:trans,unknownSec:unknown,
+    causeMinutes:{roll:cs.roll/60,pitch:cs.pitch/60,inclination:cs.inclination/60,shr:cs.shr/60,heave:cs.heave/60},
+    windAvg:wN?wSum/wN:null,windGustMax:wGust};
+}
+function heliLongestDayGreen(records,deltas){var best=0,cur=0;for(var i=0;i<records.length;i++){var r=records[i];if(r.isDay===true&&heliClassify(r)==='green'){cur+=deltas[i];if(cur>best)best=cur;}else cur=0;}return best;}
+function heliDateKey(ts){return ts.getUTCFullYear()+'-'+String(ts.getUTCMonth()+1).padStart(2,'0')+'-'+String(ts.getUTCDate()).padStart(2,'0');}
+function heliGroupByDay(records){var g={};for(var i=0;i<records.length;i++){var k=heliDateKey(records[i].ts);(g[k]||(g[k]=[])).push(records[i]);}return g;}
+
+/* Build per-day CMS summaries from a file's records */
+function heliBuildDays(records){
+  var groups=heliGroupByDay(records),out=[];
+  for(var k in groups){
+    var dr=groups[k],dd=heliDeltas(dr);
+    var aDay=heliAggregate(dr,dd,function(r){return r.isDay===true;});
+    var a24=heliAggregate(dr,dd,null);
+    var win=heliLongestDayGreen(dr,dd);
+    var gpd=aDay.totalSec>0?aDay.greenSec/aDay.totalSec*100:0;
+    var g24=a24.totalSec>0?a24.greenSec/a24.totalSec*100:0;
+    var status=win>=1800?'go':(gpd>0?'partial':'nogo');
+    out.push({date:k,status:status,greenPctDay:+gpd.toFixed(1),greenPct24:+g24.toFixed(1),
+      windowSec:Math.round(win),
+      causeMinutes:{roll:+aDay.causeMinutes.roll.toFixed(1),pitch:+aDay.causeMinutes.pitch.toFixed(1),inclination:+aDay.causeMinutes.inclination.toFixed(1),shr:+aDay.causeMinutes.shr.toFixed(1),heave:+aDay.causeMinutes.heave.toFixed(1)},
+      windAvg:aDay.windAvg!=null?+aDay.windAvg.toFixed(1):null,windGustMax:aDay.windGustMax!=null?+aDay.windGustMax.toFixed(1):null});
+  }
+  out.sort(function(a,b){return a.date<b.date?-1:1;});
+  return out;
 }
 
-function heliFmt(s){const[y,m,day]=s.split('-');return parseInt(day)+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1]+' '+y;}
-function heliMoName(k){const[y,m]=k.split('-');return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1]+' '+y;}
-function heliAvg(arr){return arr.length?arr.reduce((s,v)=>s+v,0)/arr.length:null;}
-function heliN(v,d){d=d!=null?d:1;return(v==null||isNaN(+v))?'\u2014':(+v).toFixed(d);}
-function heliSeq(days,status){let max=0,cur=0;days.forEach(d=>{if(heliStatus(d)===status){cur++;if(cur>max)max=cur;}else cur=0;});return max;}
+/* ---------- Storage (loaded days) ---------- */
+async function heliSaveDays(daySummaries){
+  for(var i=0;i<daySummaries.length;i++){
+    try{await window.storage.set(HELI_PREFIX+daySummaries[i].date,JSON.stringify(daySummaries[i]),false);}catch(e){console.warn('heli save',e);}
+  }
+  heliLoadedCache=null;
+}
+async function heliLoadStored(){
+  if(heliLoadedCache)return heliLoadedCache;
+  var out=[];
+  try{
+    var res=await window.storage.list(HELI_PREFIX,false);
+    var keys=(res&&res.keys)||[];
+    for(var i=0;i<keys.length;i++){try{var g=await window.storage.get(keys[i],false);if(g&&g.value){var p=JSON.parse(g.value);if(p&&p.date)out.push(p);}}catch(e){}}
+  }catch(e){console.warn('heli load',e);}
+  out.sort(function(a,b){return a.date<b.date?-1:1;});
+  heliLoadedCache=out;return out;
+}
+async function heliClearStored(){
+  try{var res=await window.storage.list(HELI_PREFIX,false);var keys=(res&&res.keys)||[];for(var i=0;i<keys.length;i++){await window.storage.delete(keys[i],false);}}catch(e){}
+  heliLoadedCache=null;
+}
 
+/* ---------- Formatting helpers ---------- */
+function heliFmtD(s){var p=s.split('-');return parseInt(p[2])+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(p[1])-1]+' '+p[0];}
+function heliMoName(k){var p=k.split('-');return['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(p[1])-1]+' '+p[0];}
+function heliStatusOf(d){ if(d.status)return d.status; var g=d.greenPctDay!=null?d.greenPctDay:0; if(d.windowSec>=1800)return 'go'; if(g>0)return 'partial'; return 'nogo'; }
+function heliAvg(a){return a.length?a.reduce(function(s,v){return s+v;},0)/a.length:null;}
+function heliN(v,d){d=d==null?1:d;return(v==null||isNaN(+v))?'\u2014':(+v).toFixed(d);}
+function heliSeq(days,val){var m=0,c=0;for(var i=0;i<days.length;i++){if(heliStatusOf(days[i])===val){c++;if(c>m)m=c;}else c=0;}return m;}
 function heliKpi(label,val,unit,sub,col){
-  const clrs={green:'#22c55e',amber:'#f59e0b',red:'#ef4444',teal:'#06b6d4',yellow:'#f0a500'};
-  const c=clrs[col]||'var(--text3)';
+  var clr={green:'#22c55e',amber:'#f59e0b',red:'#ef4444',teal:'#06b6d4',yellow:'#f0a500'}[col]||'var(--text3)';
   return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px 12px;position:relative;overflow:hidden">'
-    +'<div style="position:absolute;top:0;left:0;right:0;height:3px;background:'+c+';border-radius:2px 2px 0 0"></div>'
+    +'<div style="position:absolute;top:0;left:0;right:0;height:3px;background:'+clr+';border-radius:2px 2px 0 0"></div>'
     +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:6px">'+label+'</div>'
-    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;line-height:1;margin-bottom:3px;color:'+c+'">'+val+'<span style="font-size:14px;color:var(--text3)">'+unit+'</span></div>'
+    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;line-height:1;margin-bottom:3px;color:'+clr+'">'+val+'<span style="font-size:14px;color:var(--text3)">'+unit+'</span></div>'
     +'<div style="font-size:10px;color:var(--text3);line-height:1.4">'+sub+'</div></div>';
 }
 
+/* ---------- File handling ---------- */
+function heliSetStatus(msg,kind){var el=document.getElementById('heli-drop-status');if(!el)return;el.textContent=msg||'';el.style.color=kind==='err'?'#ef4444':kind==='ok'?'#22c55e':'var(--text3)';}
+
+async function heliHandleFile(file){
+  if(!file)return;
+  if(typeof XLSX==='undefined'){heliSetStatus('Leitor de Excel indisponível nesta sess\u00e3o.','err');return;}
+  heliSetStatus('Lendo '+file.name+'\u2026',null);
+  var reader=new FileReader();
+  reader.onerror=function(){heliSetStatus('N\u00e3o consegui ler o arquivo.','err');};
+  reader.onload=async function(e){
+    try{
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      var parsed=heliParseWorkbook(wb);
+      if(!parsed.records.length){heliSetStatus('Nenhuma linha v\u00e1lida. Confira as colunas Date/Time, GREENLIGHT e REDLIGHT.','err');return;}
+      var dayDefs=heliBuildDays(parsed.records);
+      await heliSaveDays(dayDefs);
+      heliSource='loaded';
+      var warn='';
+      if(parsed.dayNightMissing)warn=' \u26a0 Sem coluna DAYNIGHTSTATUSNO \u2014 c\u00e1lculos diurnos podem sair zerados.';
+      else if(parsed.usedLegacy)warn=' \u26a0 Arquivo usa DAYNIGHTSTATUS (texto) \u2014 recomendo reexportar com DAYNIGHTSTATUSNO.';
+      heliSetStatus(parsed.records.length+' leituras \u00b7 '+dayDefs.length+' dia(s) carregado(s) de '+file.name+'.'+warn, warn?null:'ok');
+      renderHelideckView();
+    }catch(err){console.error(err);heliSetStatus('Erro ao processar: '+err.message,'err');}
+  };
+  reader.readAsArrayBuffer(file);
+}
+function heliWireDrop(){
+  var drop=document.getElementById('heli-drop');var input=document.getElementById('heli-file');
+  if(!drop||!input||drop._wired)return;drop._wired=true;
+  drop.addEventListener('click',function(){input.click();});
+  input.addEventListener('change',function(e){heliHandleFile(e.target.files[0]);});
+  ['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.style.borderColor='var(--accent2)';drop.style.background='var(--bg3)';});});
+  ['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.style.borderColor='var(--border)';drop.style.background='var(--bg2)';});});
+  drop.addEventListener('drop',function(e){var f=e.dataTransfer.files&&e.dataTransfer.files[0];heliHandleFile(f);});
+}
+function heliSwitch(src){heliSource=src;renderHelideckView();}
+async function heliReset(){
+  if(!confirm('Isso apaga os dias carregados neste navegador e volta ao estudo de refer\u00eancia. Confirma?'))return;
+  await heliClearStored();heliSource='study';renderHelideckView();
+}
+
+/* ---------- Main render ---------- */
 async function renderHelideckView(){
-  const rp=document.getElementById('right-panel');
-  rp.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">&#x1F681; Loading HMS data\u2026</div>';
-  const all=await heliLoadDays();
-  if(!all.length){
-    rp.innerHTML='<div class="right-head"><h2>&#x1F681; Helideck \xb7 NORMAM 27</h2></div><div class="empty-note"><strong>Nenhum dado HMS ainda.</strong><br>Use o sistema do colega para carregar os arquivos di\xe1rios. Os KPIs aparecer\xe3o aqui automaticamente.</div>';
-    return;
-  }
-  const real=all.filter(d=>heliStatus(d)!=='nodata');
-  const go=real.filter(d=>heliStatus(d)==='go');
-  const partial=real.filter(d=>heliStatus(d)==='partial');
-  const nogo=real.filter(d=>heliStatus(d)==='nogo');
-  const total=real.length;
-  const goRate=total?Math.round(go.length/total*100):0;
-  const gGP=real.filter(d=>d.greenPctDay!=null||d.greenPctDiurnal!=null);
-  const avgGP=gGP.length?heliAvg(gGP.map(d=>+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal))):null;
-  const g24=real.filter(d=>d.greenPct24!=null);
-  const avg24=g24.length?heliAvg(g24.map(d=>+d.greenPct24)):null;
-  const gW=go.filter(d=>d.windowSec>0);
-  const avgWin=gW.length?heliAvg(gW.map(d=>d.windowSec/3600)):null;
-  const seqGo=heliSeq(all,'go'),seqNg=heliSeq(all,'nogo');
-  const last=[...all].reverse().find(d=>heliStatus(d)!=='nodata');
-  const lst=last?heliStatus(last):'nodata';
-  const stClr={go:'#22c55e',partial:'#f59e0b',nogo:'#ef4444'};
-  const stLbl={go:'GO \u2014 Dia Oper\xe1vel',partial:'PARTIAL \u2014 Janela Limitada',nogo:'NO-GO \u2014 Sem Janela Verde'};
-  // Farol
-  const fl=['r','a','g'].map(l=>{const on=(lst==='nogo'&&l==='r')||(lst==='partial'&&l==='a')||(lst==='go'&&l==='g');const bc={r:'#ef4444',a:'#f59e0b',g:'#22c55e'}[l];return '<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:20px;height:20px;border-radius:50%;background:'+bc+';opacity:'+(on?1:.14)+(on?';box-shadow:0 0 12px 3px '+bc+'44':'')+'">'+'</div><div style="font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+{r:'Red',a:'Amb',g:'Green'}[l]+'</div></div>';}).join('');
-  // Bars
-  const bC={go:'#22c55e',partial:'#f59e0b',nogo:'#ef4444',nodata:'#94a3b8'};
-  const bars=all.map(d=>{const st=heliStatus(d);const g=+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:0);const h=st==='go'?Math.max(8,g):st==='partial'?Math.max(5,g):5;return '<div title="'+heliFmt(d.date)+' \u2014 '+st.toUpperCase()+' \u2014 Verde: '+heliN(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal)+'%" style="flex:1;min-width:3px;height:'+h+'px;background:'+bC[st]+';border-radius:2px 2px 0 0;opacity:.9;cursor:default"></div>';}).join('');
-  const ax=all.length>=2?'<span>'+heliFmt(all[0].date)+'</span><span>'+heliFmt(all[Math.floor(all.length/2)].date)+'</span><span>'+heliFmt(all[all.length-1].date)+'</span>':'';
-  // Monthly
-  const mo={};real.forEach(d=>{const k=d.date.slice(0,7);if(!mo[k])mo[k]={go:0,t:0};mo[k].t++;if(heliStatus(d)==='go')mo[k].go++;});
-  const mRows=Object.keys(mo).sort().map(k=>{const{go:g,t}=mo[k];const pct=t?Math.round(g/t*100):0;const c=pct>=50?'#22c55e':pct>=33?'#f59e0b':'#ef4444';return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:50px;font-size:10px;font-weight:600;color:var(--navy);font-family:\'Barlow Condensed\',sans-serif">'+heliMoName(k).slice(0,6)+'</div><div style="flex:1;height:7px;background:var(--bg3,#eee);border-radius:4px;overflow:hidden"><div style="width:'+Math.max(2,pct)+'%;height:100%;background:'+c+';border-radius:4px"></div></div><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:700;color:'+c+';min-width:36px;text-align:right">'+pct+'%</div><div style="font-size:10px;color:var(--text3);min-width:40px">'+g+'/'+t+' d</div></div>';}).join('');
-  // Causes
-  const tC={roll:0,pitch:0,inclination:0,shr:0,heave:0};
-  real.forEach(d=>{if(d.causeMinutes)Object.keys(tC).forEach(k=>{if(d.causeMinutes[k])tC[k]+=+d.causeMinutes[k];});});
-  const mxC=Math.max.apply(null,Object.values(tC).concat([1]));
-  const cLbl={roll:'Roll > 3\xb0',pitch:'Pitch > 3\xb0',inclination:'Inclina\xe7\xe3o > 3.5\xb0',shr:'SVArf > 1 m/s',heave:'Heave > 3 m'};
-  const anyC=Object.values(tC).some(v=>v>0);
-  const cHtml=anyC?Object.entries(cLbl).map(([k,l])=>'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:10px;color:var(--text3);min-width:110px">'+l+'</div><div style="flex:1;height:6px;background:var(--bg3,#eee);border-radius:3px;overflow:hidden"><div style="width:'+(tC[k]/mxC*100).toFixed(1)+'%;height:100%;background:#ef4444;border-radius:3px"></div></div><div style="font-size:10px;color:var(--text2);min-width:44px;text-align:right">'+Math.round(tC[k])+' min</div></div>').join(''):'<div style="font-size:11px;color:var(--text3)">Nenhum par\xe2metro excedeu limite ou dados de movimento n\xe3o foram exportados.</div>';
-  // Wind
-  const wGo=heliAvg(go.filter(d=>d.windAvg!=null).map(d=>+d.windAvg));
-  const wNg=heliAvg(nogo.filter(d=>d.windAvg!=null).map(d=>+d.windAvg));
-  const wHtml=(wGo!=null&&wNg!=null)?'<div style="display:flex;align-items:center;gap:20px;padding:12px 0"><div style="flex:1;text-align:center"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;color:#22c55e">'+wGo.toFixed(1)+'<span style="font-size:12px;color:var(--text3)"> kn</span></div><div style="font-size:10px;color:var(--text3)">dias GO</div></div><div style="width:1px;height:40px;background:var(--border)"></div><div style="flex:1;text-align:center"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;color:#ef4444">'+wNg.toFixed(1)+'<span style="font-size:12px;color:var(--text3)"> kn</span></div><div style="font-size:10px;color:var(--text3)">dias NO-GO</div></div></div>'+(wGo>wNg?'<div style="font-size:10px;color:#f59e0b;line-height:1.4">Vento maior nos dias GO \u2014 gargalo prov\xe1vel: DP (heave/pitch/roll), n\xe3o o vento.</div>':''):'<div style="font-size:11px;color:var(--text3);padding:10px 0">Sem dados de vento suficientes.</div>';
-  // Conclusions
-  const aW=avgWin!=null?avgWin.toFixed(1)+'h':'~5h';
-  const ccs=[{n:1,t:'Opera\xe7\xe3o vi\xe1vel em ~'+goRate+'% dos dias \u2014 janela m\xe9dia de '+aW+'. Uso real, n\xe3o marginal.',c:'#22c55e'},{n:2,t:'Padr\xe3o bimodal favorece voos programados por previs\xe3o do dia, n\xe3o disponibilidade 24/7.',c:'#06b6d4'},{n:3,t:'Sazonalidade forte. Novembro tipicamente melhor m\xeas. Um ano completo daria a curva sazonal inteira.',c:'#f59e0b'},{n:4,t:'Gargalo prov\xe1vel: DP (heave/pitch/roll), n\xe3o vento/swell. Exportar dados de movimento do HMS.',c:'#f0a500'}].map(c=>'<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:var(--bg3,#f5f5f5);border-radius:7px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:22px;font-weight:900;color:'+c.c+';flex-shrink:0;line-height:1">'+c.n+'</div><div style="font-size:11px;color:var(--text2);line-height:1.6">'+c.t+'</div></div>').join('');
-  const a90=all.filter(d=>{const g=+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:0);return g>90;}).length;
-  const b10=all.filter(d=>{const g=+(d.greenPctDay!=null?d.greenPctDay:d.greenPctDiurnal!=null?d.greenPctDiurnal:100);return g<10&&heliStatus(d)!=='nodata';}).length;
+  var rp=document.getElementById('right-panel');
+  var loaded=await heliLoadStored();
+  var hasLoaded=loaded.length>0;
+  if(heliSource==='loaded'&&!hasLoaded)heliSource='study';
+  var days=(heliSource==='loaded')?loaded:HELI_SEED;
+  var srcLabel=(heliSource==='loaded')?('Dados carregados \u00b7 '+loaded.length+' dia(s)'):('Estudo de refer\u00eancia \u00b7 01 Aug \u2192 21 Dec 2025');
+
+  // aggregates
+  var real=days.filter(function(d){return heliStatusOf(d)!=='nodata';});
+  var go=real.filter(function(d){return heliStatusOf(d)==='go';});
+  var partial=real.filter(function(d){return heliStatusOf(d)==='partial';});
+  var nogo=real.filter(function(d){return heliStatusOf(d)==='nogo';});
+  var total=real.length;
+  var goRate=total?Math.round(go.length/total*100):0;
+  var avgGP=heliAvg(real.filter(function(d){return d.greenPctDay!=null;}).map(function(d){return +d.greenPctDay;}));
+  var avg24=heliAvg(real.filter(function(d){return d.greenPct24!=null;}).map(function(d){return +d.greenPct24;}));
+  var avgWin=heliAvg(go.filter(function(d){return d.windowSec>0;}).map(function(d){return d.windowSec/3600;}));
+  var seqGo=heliSeq(days,'go'),seqNg=heliSeq(days,'nogo');
+  var last=days.slice().reverse().find(function(d){return heliStatusOf(d)!=='nodata';});
+  var lst=last?heliStatusOf(last):'nodata';
+  var stClr={go:'#22c55e',partial:'#f59e0b',nogo:'#ef4444'};
+  var stLbl={go:'GO \u2014 Dia Oper\u00e1vel',partial:'PARTIAL \u2014 Janela Limitada',nogo:'NO-GO \u2014 Sem Janela Verde'};
+
+  var fl=['r','a','g'].map(function(l){var on=(lst==='nogo'&&l==='r')||(lst==='partial'&&l==='a')||(lst==='go'&&l==='g');var bc={r:'#ef4444',a:'#f59e0b',g:'#22c55e'}[l];return '<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:20px;height:20px;border-radius:50%;background:'+bc+';opacity:'+(on?1:.14)+(on?';box-shadow:0 0 12px 3px '+bc+'44':'')+'"></div><div style="font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">'+({r:'Red',a:'Amb',g:'Green'}[l])+'</div></div>';}).join('');
+
+  var bC={go:'#22c55e',partial:'#f59e0b',nogo:'#ef4444',nodata:'#94a3b8'};
+  var bars=days.map(function(d){var st=heliStatusOf(d);var g=+(d.greenPctDay!=null?d.greenPctDay:0);var h=st==='go'?Math.max(8,g):st==='partial'?Math.max(5,g):5;return '<div title="'+heliFmtD(d.date)+' \u2014 '+st.toUpperCase()+' \u2014 Verde: '+heliN(d.greenPctDay)+'%" style="flex:1;min-width:3px;height:'+h+'px;background:'+bC[st]+';border-radius:2px 2px 0 0;opacity:.9;cursor:default"></div>';}).join('');
+  var ax=days.length>=2?'<span>'+heliFmtD(days[0].date)+'</span><span>'+heliFmtD(days[Math.floor(days.length/2)].date)+'</span><span>'+heliFmtD(days[days.length-1].date)+'</span>':'';
+  var a90=days.filter(function(d){return +(d.greenPctDay||0)>90;}).length;
+  var b10=days.filter(function(d){return +(d.greenPctDay!=null?d.greenPctDay:100)<10&&heliStatusOf(d)!=='nodata';}).length;
+
+  var mo={};real.forEach(function(d){var k=d.date.slice(0,7);(mo[k]||(mo[k]={go:0,t:0}));mo[k].t++;if(heliStatusOf(d)==='go')mo[k].go++;});
+  var mRows=Object.keys(mo).sort().map(function(k){var o=mo[k],pct=o.t?Math.round(o.go/o.t*100):0,c=pct>=50?'#22c55e':pct>=33?'#f59e0b':'#ef4444';return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="width:50px;font-size:10px;font-weight:600;color:var(--navy);font-family:\'Barlow Condensed\',sans-serif">'+heliMoName(k).slice(0,6)+'</div><div style="flex:1;height:7px;background:var(--bg3,#eee);border-radius:4px;overflow:hidden"><div style="width:'+Math.max(2,pct)+'%;height:100%;background:'+c+';border-radius:4px"></div></div><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:700;color:'+c+';min-width:36px;text-align:right">'+pct+'%</div><div style="font-size:10px;color:var(--text3);min-width:40px">'+o.go+'/'+o.t+' d</div></div>';}).join('');
+
+  var tC={roll:0,pitch:0,inclination:0,shr:0,heave:0};
+  real.forEach(function(d){if(d.causeMinutes)for(var k in tC){if(d.causeMinutes[k])tC[k]+=+d.causeMinutes[k];}});
+  var mxC=Math.max(tC.roll,tC.pitch,tC.inclination,tC.shr,tC.heave,1);
+  var cLbl={roll:'Roll (Balan\u00e7o) > 3\u00b0',pitch:'Pitch (Caturro) > 3\u00b0',inclination:'Inclina\u00e7\u00e3o > 3.5\u00b0',shr:'SVArf > 1 m/s',heave:'Heave > 3 m'};
+  var anyC=tC.roll+tC.pitch+tC.inclination+tC.shr+tC.heave>0;
+  var cHtml=anyC?['heave','pitch','roll','inclination','shr'].map(function(k){return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:10px;color:var(--text3);min-width:130px">'+cLbl[k]+'</div><div style="flex:1;height:6px;background:var(--bg3,#eee);border-radius:3px;overflow:hidden"><div style="width:'+(tC[k]/mxC*100).toFixed(1)+'%;height:100%;background:#ef4444;border-radius:3px"></div></div><div style="font-size:10px;color:var(--text2);min-width:52px;text-align:right">'+Math.round(tC[k])+' min</div></div>';}).join(''):'<div style="font-size:11px;color:var(--text3);line-height:1.5">Nenhum par\u00e2metro monitorado excedeu o limite nos minutos vermelhos diurnos.</div>';
+
+  var wGo=heliAvg(go.filter(function(d){return d.windAvg!=null;}).map(function(d){return +d.windAvg;}));
+  var wNg=heliAvg(nogo.filter(function(d){return d.windAvg!=null;}).map(function(d){return +d.windAvg;}));
+  var wHtml=(wGo!=null&&wNg!=null)?'<div style="display:flex;align-items:center;gap:20px;padding:12px 0"><div style="flex:1;text-align:center"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;color:#22c55e">'+wGo.toFixed(1)+'<span style="font-size:12px;color:var(--text3)"> kn</span></div><div style="font-size:10px;color:var(--text3)">dias GO</div></div><div style="width:1px;height:40px;background:var(--border)"></div><div style="flex:1;text-align:center"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:30px;font-weight:900;color:#ef4444">'+wNg.toFixed(1)+'<span style="font-size:12px;color:var(--text3)"> kn</span></div><div style="font-size:10px;color:var(--text3)">dias NO-GO</div></div></div>'+(wGo>wNg?'<div style="font-size:10px;color:#f59e0b;line-height:1.4">Vento <b>maior</b> nos dias GO \u2014 o gargalo n\u00e3o \u00e9 o vento. Causa prov\u00e1vel: movimento do navio em DP (heave/pitch/roll).</div>':''):'<div style="font-size:11px;color:var(--text3);padding:10px 0">Sem dados de vento suficientes.</div>';
+
+  var aW=avgWin!=null?avgWin.toFixed(1)+'h':'\u2014';
+  var ccs=[
+    {n:1,t:'Opera\u00e7\u00e3o vi\u00e1vel em ~'+goRate+'% dos dias \u2014 janela m\u00e9dia de '+aW+'. Uso real, n\u00e3o marginal.',c:'#22c55e'},
+    {n:2,t:'Padr\u00e3o bimodal: o dia tende a ser oper\u00e1vel ou totalmente fechado. Favorece voos programados por previs\u00e3o, n\u00e3o disponibilidade 24/7.',c:'#06b6d4'},
+    {n:3,t:'Sazonalidade forte. No estudo, Novembro foi o melhor m\u00eas. Um ano completo daria a curva sazonal inteira.',c:'#f59e0b'},
+    {n:4,t:'Gargalo prov\u00e1vel: DP (heave/pitch/roll), n\u00e3o vento/swell. Heave domina os minutos vermelhos.',c:'#f0a500'}
+  ].map(function(c){return '<div style="display:flex;gap:10px;align-items:flex-start;padding:10px;background:var(--bg3,#f5f5f5);border-radius:7px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:22px;font-weight:900;color:'+c.c+';flex-shrink:0;line-height:1">'+c.n+'</div><div style="font-size:11px;color:var(--text2);line-height:1.6">'+c.t+'</div></div>';}).join('');
+
+  var toggle=hasLoaded?('<div style="display:inline-flex;gap:2px;background:var(--bg3,#eef);border-radius:8px;padding:3px">'
+    +'<button onclick="heliSwitch(\'loaded\')" style="border:none;cursor:pointer;font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;background:'+(heliSource==='loaded'?'var(--navy)':'transparent')+';color:'+(heliSource==='loaded'?'#fff':'var(--text3)')+'">\ud83d\udcc1 Carregados</button>'
+    +'<button onclick="heliSwitch(\'study\')" style="border:none;cursor:pointer;font-size:11px;font-weight:600;padding:5px 12px;border-radius:6px;background:'+(heliSource==='study'?'var(--navy)':'transparent')+';color:'+(heliSource==='study'?'#fff':'var(--text3)')+'">\ud83d\udcca Estudo</button>'
+    +'</div>'):'';
+
   rp.innerHTML=
-    '<div class="right-head"><h2>&#x1F681; Helideck Monitoring \xb7 NORMAM 27</h2>'
-    +'<div style="display:flex;gap:8px;align-items:center"><span style="font-size:11px;color:var(--text3)">'+heliFmt(all[0].date)+' \u2192 '+heliFmt(all[all.length-1].date)+' \xb7 '+all.length+' dias</span>'
-    +'<button class="btn btn-sm btn-light" onclick="renderHelideckView()" style="font-size:11px;padding:4px 10px">\u21bb Refresh</button></div></div>'
-    // FAROL
-    +'<div style="display:flex;align-items:center;gap:14px;padding:13px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">'
-    +fl
-    +'<div style="width:1px;height:40px;background:var(--border)"></div>'
-    +'<div style="flex:1"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:20px;font-weight:900;color:'+(stClr[lst]||'var(--text3)')+'">'+( last?stLbl[lst]:'SEM DADOS')+'</div>'
-    +(last?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Verde diurno: '+heliN(last.greenPctDay!=null?last.greenPctDay:last.greenPctDiurnal)+'% \xb7 Vento: '+heliN(last.windAvg,1)+' kn</div>':'')
+    '<div class="right-head"><h2>\ud83d\ude81 Helideck \u00b7 Estudo de Disponibilidade</h2>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+toggle
+    +(hasLoaded?'<button class="btn btn-sm btn-light" onclick="heliReset()" style="font-size:11px;padding:4px 10px">\u21ba Limpar carregados</button>':'')
+    +'</div></div>'
+    // DROP ZONE
+    +'<div id="heli-drop" tabindex="0" role="button" style="border:1.5px dashed var(--border);border-radius:10px;background:var(--bg2);padding:22px;text-align:center;cursor:pointer;transition:all .15s;margin-bottom:6px">'
+    +'<div style="font-size:26px;margin-bottom:6px">\ud83d\udcc4</div>'
+    +'<div style="font-weight:600;font-size:14px;color:var(--navy);margin-bottom:4px">Solte aqui o Excel exportado do HMS, ou clique para escolher</div>'
+    +'<div style="font-size:11px;color:var(--text3);line-height:1.5">.xls / .xlsx \u00b7 colunas: Date/Time, GREENLIGHT, REDLIGHT, DAYNIGHTSTATUSNO, MAXROLL20MIN, MAXPITCH20MIN, MAXHELIINCL, SHRROUNDED, MAXHEAVE, WINDSPEED2, WINDGUSTKN3S</div>'
+    +'<input type="file" id="heli-file" accept=".xls,.xlsx" style="display:none">'
     +'</div>'
-    +(last?'<div style="font-size:10px;color:var(--text3);text-align:right">Last entry<br><strong style="color:var(--navy)">'+heliFmt(last.date)+'</strong></div>':'')
+    +'<div id="heli-drop-status" style="font-family:\'Share Tech Mono\',monospace;font-size:11px;color:var(--text3);min-height:15px;margin-bottom:14px"></div>'
+    // SOURCE LABEL
+    +'<div style="font-size:11px;color:var(--text3);margin-bottom:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>Exibindo: <b style="color:var(--navy)">'+srcLabel+'</b></span><span>'+heliFmtD(days[0].date)+' \u2192 '+heliFmtD(days[days.length-1].date)+' \u00b7 '+days.length+' dias</span></div>'
+    // FAROL
+    +'<div style="display:flex;align-items:center;gap:14px;padding:13px 18px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:16px">'+fl
+    +'<div style="width:1px;height:40px;background:var(--border)"></div>'
+    +'<div style="flex:1"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:20px;font-weight:900;color:'+(stClr[lst]||'var(--text3)')+'">'+(last?stLbl[lst]:'SEM DADOS')+'</div>'
+    +(last?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Verde diurno: '+heliN(last.greenPctDay)+'% \u00b7 Vento: '+heliN(last.windAvg,1)+' kn'+(last.windGustMax!=null?' \u00b7 Rajada: '+heliN(last.windGustMax,1)+' kn':'')+'</div>':'')+'</div>'
+    +(last?'<div style="font-size:10px;color:var(--text3);text-align:right">\u00daltima entrada<br><strong style="color:var(--navy)">'+heliFmtD(last.date)+'</strong></div>':'')
     +'</div>'
     // KPI ROW 1
     +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">'
-    +heliKpi('Dias Oper\xe1veis',go.length+'/'+total,'',goRate+'% dos dias monitorados','green')
+    +heliKpi('Dias Oper\u00e1veis',go.length+'/'+total,'',goRate+'% dos dias monitorados','green')
     +heliKpi('Disponib. Diurna',avgGP!=null?avgGP.toFixed(1):'\u2014','%','Verde em luz do dia (06\u201318h)','yellow')
     +heliKpi('Disponib. 24h',avg24!=null?avg24.toFixed(1):'\u2014','%','Verde sobre o dia inteiro','teal')
-    +heliKpi('Janela M\xe9dia',avgWin!=null?avgWin.toFixed(1):'\u2014','h','Dura\xe7\xe3o t\xedpica (dias oper\xe1veis)','amber')
+    +heliKpi('Janela M\u00e9dia',avgWin!=null?avgWin.toFixed(1):'\u2014','h','Dura\u00e7\u00e3o t\u00edpica (dias oper\u00e1veis)','amber')
     +'</div>'
     // KPI ROW 2
     +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
-    +heliKpi('Dias sem Janela',nogo.length,'',total?Math.round(nogo.length/total*100):0+'% \u2014 zero verde cont\xednuo','red')
-    +heliKpi('Dias Parciais',partial.length,'','Verde mas <30 min cont\xednuo','amber')
-    +heliKpi('Maior Seq. GO',seqGo,' d','Oper\xe1veis consecutivos','green')
+    +heliKpi('Dias sem Janela',nogo.length,'',(total?Math.round(nogo.length/total*100):0)+'% \u2014 zero verde cont\u00ednuo','red')
+    +heliKpi('Dias Parciais',partial.length,'','Verde mas <30 min cont\u00ednuo','amber')
+    +heliKpi('Maior Seq. GO',seqGo,' d','Oper\u00e1veis consecutivos','green')
     +heliKpi('Maior Seq. NO-GO',seqNg,' d','Sem janela consecutivos','red')
     +'</div>'
     // BAR CHART
     +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px">'
-    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">O Per\xedodo, Dia a Dia \u2014 do Vermelho ao Verde</div>'
+    +'<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">O Per\u00edodo, Dia a Dia \u2014 do Vermelho ao Verde</div>'
     +'<div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
-    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#22c55e"></div>Oper\xe1vel (GO)</div>'
+    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#22c55e"></div>Oper\u00e1vel (GO)</div>'
     +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#f59e0b"></div>Parcial</div>'
-    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#ef4444"></div>No-go</div>'
-    +'</div>'
+    +'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text3)"><div style="width:10px;height:10px;border-radius:2px;background:#ef4444"></div>No-go</div></div>'
     +'<div style="display:flex;gap:2px;align-items:flex-end;height:90px">'+bars+'</div>'
     +'<div style="display:flex;justify-content:space-between;font-family:\'Share Tech Mono\',monospace;font-size:9px;color:var(--text3);margin-top:4px">'+ax+'</div>'
-    +'<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">Padr\xe3o bimodal: '+a90+' dias acima de 90% \xb7 '+b10+' dias abaixo de 10%.</div>'
+    +'<div style="font-size:10px;color:var(--text3);margin-top:8px;line-height:1.5">Padr\u00e3o bimodal: '+a90+' dias acima de 90% \u00b7 '+b10+' dias abaixo de 10%.</div>'
     +'</div>'
     // MONTHLY + CAUSES
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">'
-    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Disponibilidade por M\xeas</div>'+(mRows||'<div style="font-size:11px;color:var(--text3)">Sem dados mensais.</div>')+'</div>'
-    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Causa Prov\xe1vel da Indisponibilidade</div>'+cHtml+'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Disponibilidade por M\u00eas</div>'+(mRows||'<div style="font-size:11px;color:var(--text3)">Sem dados mensais.</div>')+'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)">Causa Prov\u00e1vel da Indisponibilidade</div>'+cHtml+'</div>'
     +'</div>'
     // WIND + CONCLUSIONS
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
-    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">Clima \xd7 Operabilidade \u2014 Vento M\xe9dio</div>'+wHtml+'</div>'
-    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">Conclus\xf5es</div><div style="display:flex;flex-direction:column;gap:8px">'+ccs+'</div></div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">Clima \u00d7 Operabilidade \u2014 Vento M\u00e9dio</div>'+wHtml+'</div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px"><div style="font-family:\'Barlow Condensed\',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">Conclus\u00f5es</div><div style="display:flex;flex-direction:column;gap:8px">'+ccs+'</div></div>'
     +'</div>';
+
+  heliWireDrop();
 }
 </script>
 </body>
